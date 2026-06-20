@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { AppNav } from "./app-nav";
 
 export default async function AppLayout({
   children,
@@ -50,6 +51,7 @@ export default async function AppLayout({
             </form>
           </div>
         </div>
+        <AppNav />
       </header>
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8">
         {children}

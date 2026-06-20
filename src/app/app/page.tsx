@@ -1,11 +1,13 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 
 const NEXT_STEPS = [
   {
     title: "Médicos",
     description: "Añade los médicos del servicio: adjuntos y residentes.",
-    badge: "Fase 3",
+    badge: "Listo",
+    href: "/app/medicos",
   },
   {
     title: "Calendario",
@@ -80,20 +82,37 @@ export default async function DashboardPage() {
         Siguientes pasos
       </h2>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        {NEXT_STEPS.map((s) => (
-          <div
-            key={s.title}
-            className="flex items-start justify-between rounded-xl border border-slate-200 bg-white p-5"
-          >
-            <div>
-              <h3 className="font-semibold text-slate-900">{s.title}</h3>
-              <p className="mt-1 text-sm text-slate-600">{s.description}</p>
+        {NEXT_STEPS.map((s) => {
+          const ready = Boolean(s.href);
+          const inner = (
+            <>
+              <div>
+                <h3 className="font-semibold text-slate-900">{s.title}</h3>
+                <p className="mt-1 text-sm text-slate-600">{s.description}</p>
+              </div>
+              <span
+                className={`ml-3 shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
+                  ready
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-amber-50 text-amber-700"
+                }`}
+              >
+                {s.badge}
+              </span>
+            </>
+          );
+          const cls =
+            "flex items-start justify-between rounded-xl border border-slate-200 bg-white p-5";
+          return ready ? (
+            <Link key={s.title} href={s.href!} className={`${cls} hover:border-teal-300 hover:shadow-sm`}>
+              {inner}
+            </Link>
+          ) : (
+            <div key={s.title} className={cls}>
+              {inner}
             </div>
-            <span className="ml-3 shrink-0 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
-              {s.badge}
-            </span>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
