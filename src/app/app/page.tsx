@@ -12,7 +12,8 @@ const NEXT_STEPS = [
   {
     title: "Calendario",
     description: "Marca vacaciones, bajas y festivos de forma visual.",
-    badge: "Fase 4",
+    badge: "Listo",
+    href: "/app/calendario",
   },
   {
     title: "Configuración de guardias",
