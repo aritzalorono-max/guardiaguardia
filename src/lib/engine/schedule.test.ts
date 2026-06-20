@@ -1,11 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   generateSchedule,
+  fillOpenSlots,
   DEFAULT_RULES,
   type EngineDoctor,
   type EngineInput,
   type EngineSlot,
   type EngineRules,
+  type OpenAssignment,
 } from "./schedule";
 
 function adj(id: string, extra: Partial<EngineDoctor> = {}): EngineDoctor {
@@ -167,5 +169,71 @@ describe("motor de reparto", () => {
     expect(result.perDoctor["r2"].byCategory.festivo).toBeGreaterThanOrEqual(
       result.perDoctor["r1"].byCategory.festivo,
     );
+  });
+});
+
+describe("fillOpenSlots (rellenar huecos, Fase 8)", () => {
+  const lab = (id: string, date: string, doctorId: string | null): OpenAssignment => ({
+    id,
+    date,
+    category: "laborable",
+    modality: "presencial",
+    eligible: "cualquiera",
+    doctorId,
+  });
+
+  it("rellena el hueco sin elegir al médico de baja y sin tocar lo ya asignado", () => {
+    const doctors = [adj("a"), adj("b"), adj("c")];
+    const assignments: OpenAssignment[] = [
+      lab("s1", "2026-03-02", "a"),
+      lab("s2", "2026-03-05", "b"),
+      lab("s3", "2026-03-09", null), // hueco
+    ];
+    // 'a' está de baja el día del hueco.
+    const blocked = new Map([["a", new Set(["2026-03-09"])]]);
+
+    const result = fillOpenSlots({
+      assignments,
+      doctors,
+      rules: { ...DEFAULT_RULES },
+      blockedGuardDates: blocked,
+    });
+
+    expect(result.filled).toHaveLength(1);
+    expect(result.filled[0].id).toBe("s3");
+    expect(result.filled[0].doctorId).not.toBe("a"); // no el de baja
+    expect(result.remainingGaps).toBe(0);
+  });
+
+  it("no hace nada si no quedan huecos", () => {
+    const doctors = [adj("a"), adj("b")];
+    const assignments: OpenAssignment[] = [
+      lab("s1", "2026-03-02", "a"),
+      lab("s2", "2026-03-05", "b"),
+    ];
+    const result = fillOpenSlots({
+      assignments,
+      doctors,
+      rules: { ...DEFAULT_RULES },
+      blockedGuardDates: new Map(),
+    });
+    expect(result.filled).toHaveLength(0);
+    expect(result.remainingGaps).toBe(0);
+  });
+
+  it("deja hueco si no hay nadie disponible para cubrirlo", () => {
+    const doctors = [adj("a")];
+    const assignments: OpenAssignment[] = [
+      lab("s1", "2026-03-09", null),
+    ];
+    const blocked = new Map([["a", new Set(["2026-03-09"])]]);
+    const result = fillOpenSlots({
+      assignments,
+      doctors,
+      rules: { ...DEFAULT_RULES },
+      blockedGuardDates: blocked,
+    });
+    expect(result.filled).toHaveLength(0);
+    expect(result.remainingGaps).toBe(1);
   });
 });

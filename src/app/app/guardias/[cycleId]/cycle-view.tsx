@@ -2,7 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { EngineRules } from "@/lib/engine/schedule";
+import {
+  fillOpenSlots,
+  type EngineRules,
+  type EngineDoctor,
+  type OpenAssignment,
+} from "@/lib/engine/schedule";
 
 const MONTHS = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -45,6 +50,26 @@ type AuditRow = {
   new_doctor_id: string | null;
   created_at: string;
 };
+type Leave = {
+  id: string;
+  doctor_id: string;
+  start_date: string;
+  end_date: string;
+  note: string | null;
+};
+
+const pad = (n: number) => String(n).padStart(2, "0");
+function eachDateInclusive(start: string, end: string): string[] {
+  const out: string[] = [];
+  if (end < start) return out;
+  for (
+    let t = new Date(start + "T00:00:00Z");
+    t <= new Date(end + "T00:00:00Z");
+    t = new Date(t.getTime() + 86_400_000)
+  )
+    out.push(t.toISOString().slice(0, 10));
+  return out;
+}
 
 function canCover(
   kind: "adjunto" | "residente",
@@ -68,6 +93,7 @@ export function CycleView({
   doctors,
   initialAssignments,
   initialAudit,
+  initialLeaves,
   rules,
   blocked,
 }: {
@@ -84,15 +110,29 @@ export function CycleView({
   doctors: DoctorLite[];
   initialAssignments: Assignment[];
   initialAudit: AuditRow[];
+  initialLeaves: Leave[];
   rules: EngineRules;
   blocked: Record<string, string[]>;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [assignments, setAssignments] = useState<Assignment[]>(initialAssignments);
   const [audit, setAudit] = useState<AuditRow[]>(initialAudit);
+  const [leaves, setLeaves] = useState<Leave[]>(initialLeaves);
   const [status, setStatus] = useState(cycle.status);
   const [editing, setEditing] = useState<Assignment | null>(null);
   const [pick, setPick] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+
+  // Baja: formulario
+  const [leaveDoctor, setLeaveDoctor] = useState("");
+  const [leaveFrom, setLeaveFrom] = useState("");
+  const [leaveTo, setLeaveTo] = useState("");
+
+  const cycleEnd = useMemo(() => {
+    const d = new Date(Date.UTC(cycle.start_year, cycle.start_month + cycle.months, 0));
+    return d.toISOString().slice(0, 10);
+  }, [cycle]);
+  const cycleStart = `${cycle.start_year}-${pad(cycle.start_month + 1)}-01`;
 
   const docName = useMemo(
     () => new Map(doctors.map((d) => [d.id, `${d.last_name}, ${d.first_name}`])),
@@ -100,6 +140,22 @@ export function CycleView({
   );
   const docById = useMemo(() => new Map(doctors.map((d) => [d.id, d])), [doctors]);
   const candidates = doctors.filter((d) => d.does_guards && d.is_active);
+
+  // Bloqueo efectivo por médico: ausencias del calendario + bajas del ciclo.
+  const effectiveBlocked = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const [id, dates] of Object.entries(blocked))
+      m.set(id, new Set(dates));
+    for (const lv of leaves) {
+      let set = m.get(lv.doctor_id);
+      if (!set) {
+        set = new Set();
+        m.set(lv.doctor_id, set);
+      }
+      for (const d of eachDateInclusive(lv.start_date, lv.end_date)) set.add(d);
+    }
+    return m;
+  }, [blocked, leaves]);
 
   const gapDiff = Math.max(
     rules.noConsecutive || rules.freeDayAfter || rules.rest12h ? 2 : 1,
@@ -149,8 +205,8 @@ export function CycleView({
     const w: string[] = [];
     if (!canCover(doc.kind, editing.modality, editing.eligible, rules))
       w.push("No cumple la elegibilidad del puesto.");
-    if (blocked[doctorId]?.includes(editing.date))
-      w.push("Tiene una ausencia que impide guardia ese día.");
+    if (effectiveBlocked.get(doctorId)?.has(editing.date))
+      w.push("No está disponible ese día (ausencia o baja).");
     const epoch = Date.parse(editing.date) / 86_400_000;
     const others = assignments.filter(
       (a) => a.id !== editing.id && a.doctor_id === doctorId,
@@ -217,6 +273,131 @@ export function CycleView({
     await supabase.from("cycles").update({ status: next }).eq("id", cycle.id);
   }
 
+  // Registrar una baja y liberar (dejar en hueco) sus guardias de la ventana.
+  async function addLeave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!leaveDoctor || !leaveFrom) return;
+    const from = leaveFrom < cycleStart ? cycleStart : leaveFrom;
+    const to = leaveTo ? (leaveTo > cycleEnd ? cycleEnd : leaveTo) : cycleEnd;
+    setBusy(true);
+    try {
+      const { data: lv } = await supabase
+        .from("cycle_leaves")
+        .insert({
+          service_id: serviceId,
+          cycle_id: cycle.id,
+          doctor_id: leaveDoctor,
+          start_date: from,
+          end_date: to,
+        })
+        .select("id, doctor_id, start_date, end_date, note")
+        .single();
+      if (lv) setLeaves((l) => [...l, lv]);
+
+      const affected = assignments.filter(
+        (a) => a.doctor_id === leaveDoctor && a.date >= from && a.date <= to,
+      );
+      if (affected.length) {
+        const ids = affected.map((a) => a.id);
+        await supabase
+          .from("guard_assignments")
+          .update({ doctor_id: null, manual: true })
+          .in("id", ids);
+        const rows = affected.map((a) => ({
+          service_id: serviceId,
+          cycle_id: cycle.id,
+          assignment_id: a.id,
+          date: a.date,
+          actor_email: actorEmail,
+          old_doctor_id: leaveDoctor,
+          new_doctor_id: null,
+        }));
+        const { data: inserted } = await supabase
+          .from("assignment_audit")
+          .insert(rows)
+          .select("id, date, actor_email, old_doctor_id, new_doctor_id, created_at");
+        if (inserted) setAudit((a) => [...inserted, ...a]);
+        const idset = new Set(ids);
+        setAssignments((arr) =>
+          arr.map((a) => (idset.has(a.id) ? { ...a, doctor_id: null, manual: true } : a)),
+        );
+      }
+      setLeaveDoctor("");
+      setLeaveFrom("");
+      setLeaveTo("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Reactivar: quitar la baja (no recupera las guardias ya repartidas).
+  async function removeLeave(id: string) {
+    setLeaves((l) => l.filter((x) => x.id !== id));
+    await supabase.from("cycle_leaves").delete().eq("id", id);
+  }
+
+  // Rellenar automáticamente los huecos con el motor.
+  async function fillHoles() {
+    setBusy(true);
+    try {
+      const engineDoctors: EngineDoctor[] = candidates.map((d) => ({
+        id: d.id,
+        kind: d.kind,
+        doesGuards: true,
+        isActive: true,
+        partTime: false,
+      }));
+      const open: OpenAssignment[] = assignments.map((a) => ({
+        id: a.id,
+        date: a.date,
+        category: a.category,
+        modality: a.modality,
+        eligible: a.eligible,
+        doctorId: a.doctor_id,
+      }));
+      const { filled } = fillOpenSlots({
+        assignments: open,
+        doctors: engineDoctors,
+        rules,
+        blockedGuardDates: effectiveBlocked,
+      });
+      if (filled.length === 0) return;
+
+      for (const f of filled) {
+        await supabase
+          .from("guard_assignments")
+          .update({ doctor_id: f.doctorId, manual: false })
+          .eq("id", f.id);
+      }
+      const rows = filled.map((f) => {
+        const a = assignments.find((x) => x.id === f.id)!;
+        return {
+          service_id: serviceId,
+          cycle_id: cycle.id,
+          assignment_id: f.id,
+          date: a.date,
+          actor_email: `${actorEmail} (auto)`,
+          old_doctor_id: null,
+          new_doctor_id: f.doctorId,
+        };
+      });
+      const { data: inserted } = await supabase
+        .from("assignment_audit")
+        .insert(rows)
+        .select("id, date, actor_email, old_doctor_id, new_doctor_id, created_at");
+      if (inserted) setAudit((a) => [...inserted, ...a]);
+
+      const byId = new Map(filled.map((f) => [f.id, f.doctorId]));
+      setAssignments((arr) =>
+        arr.map((a) =>
+          byId.has(a.id) ? { ...a, doctor_id: byId.get(a.id)!, manual: false } : a,
+        ),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const monthsList = Array.from({ length: cycle.months }, (_, i) => {
     const d = new Date(Date.UTC(cycle.start_year, cycle.start_month + i, 1));
     return { year: d.getUTCFullYear(), month: d.getUTCMonth() };
@@ -242,10 +423,107 @@ export function CycleView({
         </button>
       </div>
 
+      {/* Bajas a mitad de ciclo */}
+      <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5">
+        <h2 className="font-semibold text-slate-900">Bajas a mitad de ciclo</h2>
+        <p className="text-xs text-slate-500">
+          Si alguien causa baja, libera sus guardias del periodo indicado. Luego
+          rellena los huecos automáticamente o asígnalos a mano (bolsa).
+        </p>
+
+        {leaves.length > 0 && (
+          <ul className="mt-3 space-y-1 text-sm">
+            {leaves.map((lv) => (
+              <li
+                key={lv.id}
+                className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2"
+              >
+                <span>
+                  <strong>{docName.get(lv.doctor_id) ?? "—"}</strong>{" "}
+                  <span className="text-slate-500">
+                    {lv.start_date} → {lv.end_date}
+                  </span>
+                </span>
+                <button
+                  onClick={() => removeLeave(lv.id)}
+                  className="rounded-md px-2 py-1 text-xs font-medium text-teal-700 hover:bg-teal-50"
+                >
+                  Reactivar
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <form onSubmit={addLeave} className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600">Médico</span>
+            <select
+              value={leaveDoctor}
+              onChange={(e) => setLeaveDoctor(e.target.value)}
+              required
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+            >
+              <option value="">Selecciona…</option>
+              {candidates.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.last_name}, {d.first_name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600">Desde</span>
+            <input
+              type="date"
+              value={leaveFrom}
+              min={cycleStart}
+              max={cycleEnd}
+              onChange={(e) => setLeaveFrom(e.target.value)}
+              required
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600">
+              Hasta (opcional)
+            </span>
+            <input
+              type="date"
+              value={leaveTo}
+              min={leaveFrom || cycleStart}
+              max={cycleEnd}
+              onChange={(e) => setLeaveTo(e.target.value)}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={busy}
+            className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+          >
+            Liberar guardias
+          </button>
+        </form>
+        <p className="mt-2 text-xs text-slate-400">
+          Si no indicas &laquo;hasta&raquo;, la baja se aplica hasta el final del
+          periodo ({cycleEnd}).
+        </p>
+      </div>
+
       {gaps > 0 && (
-        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          Hay <strong>{gaps}</strong> puesto(s) sin cubrir (huecos). Puedes
-          asignarlos a mano pulsando sobre el día.
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span>
+            Hay <strong>{gaps}</strong> puesto(s) sin cubrir (huecos). Asígnalos a
+            mano (clic en el día) o rellénalos automáticamente.
+          </span>
+          <button
+            onClick={fillHoles}
+            disabled={busy}
+            className="shrink-0 rounded-lg bg-red-600 px-3 py-1.5 font-medium text-white hover:bg-red-700 disabled:opacity-50"
+          >
+            {busy ? "Trabajando…" : "Rellenar huecos"}
+          </button>
         </div>
       )}
 

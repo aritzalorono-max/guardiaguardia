@@ -153,6 +153,39 @@ export type Database = {
         }
         Relationships: []
       }
+      cycle_leaves: {
+        Row: {
+          created_at: string
+          cycle_id: string
+          doctor_id: string
+          end_date: string
+          id: string
+          note: string | null
+          service_id: string
+          start_date: string
+        }
+        Insert: {
+          created_at?: string
+          cycle_id: string
+          doctor_id: string
+          end_date: string
+          id?: string
+          note?: string | null
+          service_id: string
+          start_date: string
+        }
+        Update: {
+          created_at?: string
+          cycle_id?: string
+          doctor_id?: string
+          end_date?: string
+          id?: string
+          note?: string | null
+          service_id?: string
+          start_date?: string
+        }
+        Relationships: []
+      }
       day_types: {
         Row: {
           allows_guard: boolean

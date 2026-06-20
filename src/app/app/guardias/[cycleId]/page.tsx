@@ -56,6 +56,7 @@ export default async function CycleDetailPage({
     { data: dayTypeRows },
     { data: absenceRows },
     { data: auditRows },
+    { data: leaveRows },
   ] = await Promise.all([
     supabase
       .from("guard_assignments")
@@ -75,6 +76,11 @@ export default async function CycleDetailPage({
       .select("id, date, actor_email, old_doctor_id, new_doctor_id, created_at")
       .eq("cycle_id", cycleId)
       .order("created_at", { ascending: false }),
+    supabase
+      .from("cycle_leaves")
+      .select("id, doctor_id, start_date, end_date, note")
+      .eq("cycle_id", cycleId)
+      .order("start_date", { ascending: true }),
   ]);
 
   const rules = resolveEngineRules(ruleRows ?? []);
@@ -119,6 +125,7 @@ export default async function CycleDetailPage({
           doctors={doctors ?? []}
           initialAssignments={assignments ?? []}
           initialAudit={auditRows ?? []}
+          initialLeaves={leaveRows ?? []}
           rules={rules}
           blocked={blocked}
         />

@@ -393,3 +393,174 @@ export function generateSchedule(input: EngineInput): EngineResult {
 
   return { assignments, gaps, perDoctor, warnings };
 }
+
+// ============================================================
+// Rellenar SOLO los huecos de un reparto existente (Fase 8).
+// Mantiene fijas las guardias ya asignadas y cubre las vacías
+// respetando reglas, equidad y disponibilidad.
+// ============================================================
+
+export interface OpenAssignment {
+  id: string;
+  date: string;
+  category: DayCategory;
+  modality: Modality;
+  eligible: Eligibility;
+  doctorId: string | null;
+}
+
+export interface FillResult {
+  filled: { id: string; doctorId: string }[];
+  remainingGaps: number;
+}
+
+function infoFromDate(date: string) {
+  const epoch = Math.floor(Date.parse(date + "T00:00:00Z") / DAY_MS);
+  const wd = new Date(date + "T00:00:00Z").getUTCDay();
+  let weekendId: number | null = null;
+  if (wd === 5) weekendId = epoch + 1;
+  else if (wd === 6) weekendId = epoch;
+  else if (wd === 0) weekendId = epoch - 1;
+  return { epoch, weekendId, monthKey: date.slice(0, 7) };
+}
+
+export function fillOpenSlots(params: {
+  assignments: OpenAssignment[];
+  doctors: EngineDoctor[];
+  rules: EngineRules;
+  blockedGuardDates: Map<string, Set<string>>;
+  history?: Map<string, Partial<Record<DayCategory, number>>>;
+}): FillResult {
+  const { rules } = params;
+  const candidates = params.doctors.filter((d) => d.doesGuards && d.isActive);
+  const allDates = new Set(params.assignments.map((a) => a.date));
+  const totalDays = allDates.size;
+
+  const blockedCount = (id: string) => params.blockedGuardDates.get(id)?.size ?? 0;
+  const weightOf = (d: EngineDoctor) => {
+    const avail = totalDays > 0 ? (totalDays - Math.min(blockedCount(d.id), totalDays)) / totalDays : 1;
+    return avail * (d.partTime && !rules.partTimeNoPenalty ? 0.5 : 1);
+  };
+
+  // Vías y nº total de puestos por vía.
+  const laneTotal = new Map<string, number>();
+  for (const a of params.assignments) {
+    const k = laneKey(a);
+    laneTotal.set(k, (laneTotal.get(k) ?? 0) + 1);
+  }
+  const eligibleByLane = new Map<string, EngineDoctor[]>();
+  const target = new Map<string, Map<string, number>>();
+  for (const [k, total] of laneTotal) {
+    const [, modality, eligible] = k.split("|") as [DayCategory, Modality, Eligibility];
+    const elig = candidates.filter((d) => canCover(d, modality, eligible, rules));
+    eligibleByLane.set(k, elig);
+    const sumW = elig.reduce((a, d) => a + weightOf(d), 0);
+    const m = new Map<string, number>();
+    for (const d of elig) m.set(d.id, sumW > 0 ? (total * weightOf(d)) / sumW : 0);
+    target.set(k, m);
+  }
+
+  // Estado.
+  const laneCount = new Map<string, Map<string, number>>();
+  for (const k of laneTotal.keys()) laneCount.set(k, new Map());
+  const catCount = new Map<string, Record<DayCategory, number>>();
+  const monthCount = new Map<string, Map<string, number>>();
+  const assignedDates = new Map<string, Set<number>>();
+  const lastGuard = new Map<string, number>();
+  const weekendIds = new Map<string, Set<number>>();
+  const totalAssigned = new Map<string, number>();
+  for (const d of candidates) {
+    const hist = params.history?.get(d.id);
+    catCount.set(d.id, {
+      laborable: (rules.considerHistory && hist?.laborable) || 0,
+      vispera: (rules.considerHistory && hist?.vispera) || 0,
+      festivo: (rules.considerHistory && hist?.festivo) || 0,
+    });
+    monthCount.set(d.id, new Map());
+    assignedDates.set(d.id, new Set());
+    weekendIds.set(d.id, new Set());
+    totalAssigned.set(d.id, 0);
+  }
+
+  // Sembrar con lo ya asignado.
+  for (const a of params.assignments) {
+    if (!a.doctorId || !catCount.has(a.doctorId)) continue;
+    const info = infoFromDate(a.date);
+    const k = laneKey(a);
+    laneCount.get(k)!.set(a.doctorId, (laneCount.get(k)!.get(a.doctorId) ?? 0) + 1);
+    catCount.get(a.doctorId)![a.category]++;
+    totalAssigned.set(a.doctorId, totalAssigned.get(a.doctorId)! + 1);
+    monthCount.get(a.doctorId)!.set(info.monthKey, (monthCount.get(a.doctorId)!.get(info.monthKey) ?? 0) + 1);
+    assignedDates.get(a.doctorId)!.add(info.epoch);
+    lastGuard.set(a.doctorId, Math.max(lastGuard.get(a.doctorId) ?? -Infinity, info.epoch));
+    if (info.weekendId != null) weekendIds.get(a.doctorId)!.add(info.weekendId);
+  }
+
+  const baseGap = rules.noConsecutive || rules.freeDayAfter || rules.rest12h ? 2 : 1;
+  const gapDiff = Math.max(baseGap, rules.minDaysBetween ?? 1);
+  const capFor = (d: EngineDoctor) =>
+    d.kind === "residente" ? rules.maxPerMonthResident : rules.maxPerMonthAdjunto;
+  const catPriority: Record<DayCategory, number> = { festivo: 0, vispera: 1, laborable: 2 };
+
+  const open = params.assignments
+    .filter((a) => !a.doctorId)
+    .sort((a, b) => catPriority[a.category] - catPriority[b.category] || (a.date < b.date ? -1 : 1));
+
+  const filled: { id: string; doctorId: string }[] = [];
+  let remainingGaps = 0;
+
+  for (const slot of open) {
+    const info = infoFromDate(slot.date);
+    const k = laneKey(slot);
+    const elig = eligibleByLane.get(k) ?? [];
+
+    const available = elig.filter((d) => {
+      if (params.blockedGuardDates.get(d.id)?.has(slot.date)) return false;
+      const dates = assignedDates.get(d.id)!;
+      for (let off = 1; off < gapDiff; off++)
+        if (dates.has(info.epoch - off) || dates.has(info.epoch + off)) return false;
+      if (rules.noTwoWeekends && info.weekendId != null) {
+        const w = weekendIds.get(d.id)!;
+        if (w.has(info.weekendId - 7) || w.has(info.weekendId + 7)) return false;
+      }
+      const cap = capFor(d);
+      if (cap != null && (monthCount.get(d.id)!.get(info.monthKey) ?? 0) >= cap) return false;
+      return true;
+    });
+
+    if (available.length === 0) {
+      remainingGaps++;
+      continue;
+    }
+
+    const laneTarget = target.get(k)!;
+    const lc = laneCount.get(k)!;
+    available.sort((a, b) => {
+      const behindA = (laneTarget.get(a.id) ?? 0) - (lc.get(a.id) ?? 0);
+      const behindB = (laneTarget.get(b.id) ?? 0) - (lc.get(b.id) ?? 0);
+      if (behindB !== behindA) return behindB - behindA;
+      const catA = catCount.get(a.id)![slot.category];
+      const catB = catCount.get(b.id)![slot.category];
+      if (catA !== catB) return catA - catB;
+      const lgA = lastGuard.get(a.id) ?? -Infinity;
+      const lgB = lastGuard.get(b.id) ?? -Infinity;
+      if (lgA !== lgB) return lgA - lgB;
+      const tA = totalAssigned.get(a.id)!;
+      const tB = totalAssigned.get(b.id)!;
+      if (tA !== tB) return tA - tB;
+      return a.id < b.id ? -1 : 1;
+    });
+
+    const chosen = available[0];
+    filled.push({ id: slot.id, doctorId: chosen.id });
+    lc.set(chosen.id, (lc.get(chosen.id) ?? 0) + 1);
+    catCount.get(chosen.id)![slot.category]++;
+    totalAssigned.set(chosen.id, totalAssigned.get(chosen.id)! + 1);
+    monthCount.get(chosen.id)!.set(info.monthKey, (monthCount.get(chosen.id)!.get(info.monthKey) ?? 0) + 1);
+    assignedDates.get(chosen.id)!.add(info.epoch);
+    lastGuard.set(chosen.id, Math.max(lastGuard.get(chosen.id) ?? -Infinity, info.epoch));
+    if (info.weekendId != null) weekendIds.get(chosen.id)!.add(info.weekendId);
+  }
+
+  return { filled, remainingGaps };
+}
