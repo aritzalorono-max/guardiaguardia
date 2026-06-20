@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { resolveEngineRules } from "@/lib/rules";
 import { deleteCycle } from "../actions";
 import { CycleView } from "./cycle-view";
+import { ShareSection } from "./share-section";
 
 const MONTHS = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -57,6 +58,7 @@ export default async function CycleDetailPage({
     { data: absenceRows },
     { data: auditRows },
     { data: leaveRows },
+    { data: shareRows },
   ] = await Promise.all([
     supabase
       .from("guard_assignments")
@@ -81,6 +83,11 @@ export default async function CycleDetailPage({
       .select("id, doctor_id, start_date, end_date, note")
       .eq("cycle_id", cycleId)
       .order("start_date", { ascending: true }),
+    supabase
+      .from("share_links")
+      .select("id, token, expires_at")
+      .eq("cycle_id", cycleId)
+      .order("created_at", { ascending: false }),
   ]);
 
   const rules = resolveEngineRules(ruleRows ?? []);
@@ -128,6 +135,11 @@ export default async function CycleDetailPage({
           initialLeaves={leaveRows ?? []}
           rules={rules}
           blocked={blocked}
+        />
+        <ShareSection
+          cycleId={cycleId}
+          serviceId={serviceId}
+          initialLinks={shareRows ?? []}
         />
       </div>
     </div>

@@ -378,6 +378,33 @@ export type Database = {
         }
         Relationships: []
       }
+      share_links: {
+        Row: {
+          created_at: string
+          cycle_id: string
+          expires_at: string | null
+          id: string
+          service_id: string
+          token: string
+        }
+        Insert: {
+          created_at?: string
+          cycle_id: string
+          expires_at?: string | null
+          id?: string
+          service_id: string
+          token?: string
+        }
+        Update: {
+          created_at?: string
+          cycle_id?: string
+          expires_at?: string | null
+          id?: string
+          service_id?: string
+          token?: string
+        }
+        Relationships: []
+      }
       services: {
         Row: {
           approx_doctors: number | null
@@ -428,6 +455,7 @@ export type Database = {
         Returns: string
       }
       is_member_of: { Args: { p_service_id: string }; Returns: boolean }
+      get_shared_cycle: { Args: { p_token: string }; Returns: Json }
     }
     Enums: {
       doctor_kind: "adjunto" | "residente"
