@@ -45,15 +45,23 @@ según el tipo de día (laborable / víspera de festivo / festivo / fin de seman
 Cada **slot** define: modalidad (**presencial / localizada / telefónica**), quién puede cubrirlo
 (adjunto / residente / nivel R concreto), si es obligatorio o puede quedar vacío, y su **peso**.
 
-### 3.2. Peso / carga de una guardia (clave para la equidad)
-El reparto justo no cuenta guardias "a pelo": equilibra **carga ponderada**. El peso de un slot
-puede depender del contexto:
-- Una localizada de adjunto **con** residente de presencial → pesa menos.
-- La misma localizada **sin** residente → pesa más (es peor).
-- Un festivo pesa más que un laborable.
-Los pesos son **configurables** por el servicio. La equidad se calcula por **categoría**
-(laborable / víspera / festivo) **y** por modalidad, para que nadie acumule todos los festivos
-ni todas las "malas".
+### 3.2. Equidad del reparto (regla de oro)
+**Objetivo principal:** que todos tengan el **mismo número EXACTO de cada tipo de guardia**
+(laborables iguales, vísperas iguales, festivos iguales), no que "cuadren los puntos". Un festivo
+NO se compensa con dos laborables. El sistema iguala el **conteo por categoría y modalidad**.
+
+**Pesos / puntuación (rol secundario):** el peso solo se usa como **desempate** o como **último
+recurso** cuando es matemáticamente imposible igualar los conteos exactos (p.ej. nº de festivos no
+divisible entre el nº de médicos). Los pesos se calculan **automáticamente** pero son **editables**
+dentro de la sección de reglas. Ejemplos de contexto que pueden cambiar el peso:
+- Localizada de adjunto **con** residente de presencial → menos peso.
+- La misma localizada **sin** residente → más peso (es peor).
+- Festivo > víspera > laborable.
+
+**Configurable por servicio:** que "localizada sin residente" cuente distinto es **opcional**: en
+unos servicios se reparten todas por igual y en otros no. Es una regla activable (ver 3.4).
+
+**Futuro:** afinar para garantizar conteos idénticos por tipo siempre que sea posible.
 
 ### 3.3. Tipos de día especial del médico (matriz 2 atributos)
 Cada tipo se define con dos casillas independientes + color:
@@ -75,17 +83,23 @@ bloquee también la víspera/día siguiente.
   consecutivas, máx 48h/semana, no 2 findes seguidos, mín. días entre guardias, máx guardias/mes.
 - **Internas (blandas, se intentan cumplir):** jornada parcial no penaliza (o sí, proporcional);
   presenciales solo residentes; localizadas solo adjuntos/residentes; R1 con tutor; reparto
-  equitativo de festivos; coincidencias forzadas o prohibidas; refuerzo si falta residente.
+  equitativo de festivos; coincidencias forzadas o prohibidas; refuerzo si falta residente;
+  **"localizada sin residente cuenta distinto" (activable: en unos servicios sí, en otros no)**.
 - **Topes:** máx guardias/mes distinto para residentes y adjuntos.
 - **Histórico:** deuda/crédito por tipo arrastrada de periodos anteriores; reinicio anual;
   reseteo manual confirmando con `RESETEAR`.
 
 ### 3.5. Motor de reparto (algoritmo)
-1. Calcular **cuota objetivo** por médico y categoría (proporcional a días trabajados, ajustada
-   por deuda/crédito histórico).
+**Meta:** igualar el **conteo exacto por categoría/modalidad** entre médicos (ver 3.2), no sumar
+puntos. El periodo siempre cubre **meses naturales completos**.
+
+1. Calcular **cuota objetivo** por médico y categoría = nº de guardias de esa categoría a repartir,
+   proporcional a días trabajados, ajustada por **deuda/crédito histórico** (quien hizo de más antes,
+   ahora hace de menos).
 2. **Fase A:** asignar primero los días difíciles (festivos/vísperas, menos gente disponible).
 3. **Fase B:** rellenar laborables.
-4. **Fase C (optimización):** intercambios (swaps) para igualar cargas y cumplir reglas blandas.
+4. **Fase C (optimización):** intercambios (swaps) para **igualar los conteos por tipo** y cumplir
+   reglas blandas. El peso solo desempata cuando los conteos no pueden ser idénticos.
 5. Restricciones duras siempre: disponible ese día, no guardia ayer/mañana, no supera topes,
    respeta reglas legales activas.
 6. Prioriza a quien lleva **más tiempo sin guardia** (reparto en el tiempo).
@@ -149,7 +163,8 @@ bloquee también la víspera/día siguiente.
 - [ ] Marcar baja/ausencia sobrevenida con ventana (con o sin fecha de fin).
 - [ ] **Liberar** las guardias futuras de esa persona en la ventana.
 - [ ] Modo A: re-repartir automáticamente las liberadas.
-- [ ] Modo B: **bolsa de guardias** — ofrecerlas, los médicos piden, el resto va al algoritmo.
+- [ ] Modo B: **bolsa de guardias** — el **admin** recoge quién quiere cada una y las asigna;
+      el resto va al algoritmo. (v1 sin login de médicos; en el futuro las pedirán online).
 - [ ] **Reactivar** a la persona (vuelve antes) o **alargar** la baja, recalculando.
 - [ ] Recalcular cuotas/equidad tras el cambio sin rehacer todo el ciclo.
 
@@ -161,16 +176,15 @@ bloquee también la víspera/día siguiente.
 
 ---
 
-## 5. Dudas abiertas (a confirmar contigo)
+## 5. Decisiones resueltas (antes dudas)
 
-1. **Peso de las guardias:** ¿prefieres definir los pesos con números (p.ej. festivo = 2,
-   laborable = 1) o con etiquetas simples (normal / dura / muy dura) que yo traduzco a números?
-2. **Bolsa de guardias (Modo B):** ¿los médicos piden desde su propio acceso, o el admin recoge
-   las peticiones (por WhatsApp/voz) y las mete él? Esto decide si necesitamos login de médico ya.
-3. **"Cuenta distinto con/sin residente":** ¿esto afecta solo al peso (equidad), o también obliga
-   a cubrir siempre presencial cuando hay localizada (regla dura de cobertura)?
-4. **Periodos:** ¿el ciclo es siempre de meses naturales completos, o puede empezar/terminar a
-   mitad de mes?
+1. **Peso de las guardias:** automático y **editable** dentro de la sección de reglas. La equidad
+   se mide por **conteo exacto por tipo**, no por suma de puntos; el peso solo desempata.
+2. **Bolsa de guardias (Modo B):** en v1 la gestiona el **admin** (sin login de médicos). Cambiará
+   en el futuro a peticiones online.
+3. **"Cuenta distinto con/sin residente":** es **configurable por servicio** (regla activable):
+   en unos se reparten por igual, en otros no.
+4. **Periodos:** siempre **meses naturales completos**.
 
 ---
 
