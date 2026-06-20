@@ -45,6 +45,42 @@ export type Database = {
         }
         Relationships: []
       }
+      assignment_audit: {
+        Row: {
+          actor_email: string | null
+          assignment_id: string | null
+          created_at: string
+          cycle_id: string
+          date: string
+          id: string
+          new_doctor_id: string | null
+          old_doctor_id: string | null
+          service_id: string
+        }
+        Insert: {
+          actor_email?: string | null
+          assignment_id?: string | null
+          created_at?: string
+          cycle_id: string
+          date: string
+          id?: string
+          new_doctor_id?: string | null
+          old_doctor_id?: string | null
+          service_id: string
+        }
+        Update: {
+          actor_email?: string | null
+          assignment_id?: string | null
+          created_at?: string
+          cycle_id?: string
+          date?: string
+          id?: string
+          new_doctor_id?: string | null
+          old_doctor_id?: string | null
+          service_id?: string
+        }
+        Relationships: []
+      }
       cycles: {
         Row: {
           created_at: string
