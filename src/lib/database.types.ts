@@ -213,6 +213,16 @@ export type Database = {
     }
     Views: Record<string, never>
     Functions: {
+      create_service: {
+        Args: {
+          p_approx_doctors: number
+          p_has_residents: boolean
+          p_hospital_name: string
+          p_region: string
+          p_specialty: string
+        }
+        Returns: string
+      }
       is_member_of: { Args: { p_service_id: string }; Returns: boolean }
     }
     Enums: {
