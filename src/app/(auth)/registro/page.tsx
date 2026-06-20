@@ -10,6 +10,7 @@ export default function RegistroPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [accepted, setAccepted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -24,6 +25,11 @@ export default function RegistroPage() {
       setLoading(false);
       return;
     }
+    if (!accepted) {
+      setError("Debes aceptar las condiciones de uso y la política de privacidad.");
+      setLoading(false);
+      return;
+    }
 
     const supabase = createClient();
     const { data, error } = await supabase.auth.signUp({
@@ -31,6 +37,7 @@ export default function RegistroPage() {
       password,
       options: {
         emailRedirectTo: `${window.location.origin}/auth/confirm?next=/app`,
+        data: { terms_accepted_at: new Date().toISOString() },
       },
     });
 
@@ -100,6 +107,33 @@ export default function RegistroPage() {
           autoComplete="new-password"
           placeholder="Mínimo 8 caracteres"
         />
+        <label className="flex items-start gap-2 text-sm text-slate-600">
+          <input
+            type="checkbox"
+            checked={accepted}
+            onChange={(e) => setAccepted(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+          />
+          <span>
+            He leído y acepto las{" "}
+            <Link
+              href="/legal/condiciones"
+              target="_blank"
+              className="font-medium text-teal-700 hover:underline"
+            >
+              condiciones de uso
+            </Link>{" "}
+            y la{" "}
+            <Link
+              href="/legal/privacidad"
+              target="_blank"
+              className="font-medium text-teal-700 hover:underline"
+            >
+              política de privacidad
+            </Link>
+            .
+          </span>
+        </label>
         <SubmitButton loading={loading}>Crear cuenta</SubmitButton>
       </form>
       <p className="mt-6 text-center text-sm text-slate-500">

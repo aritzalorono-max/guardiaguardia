@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LegalFooter } from "@/components/legal-footer";
 
 const features = [
   {
@@ -114,12 +115,7 @@ export default function Home() {
       </section>
 
       {/* Pie */}
-      <footer className="border-t border-slate-200">
-        <div className="mx-auto max-w-6xl px-6 py-8 text-center text-sm text-slate-500">
-          GuardiaGuardia · Hecho para los servicios de guardia de los
-          hospitales.
-        </div>
-      </footer>
+      <LegalFooter />
     </main>
   );
 }

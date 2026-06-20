@@ -19,6 +19,20 @@ export default function AuthLayout({
       <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
         {children}
       </div>
+      <nav className="mt-6 flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-slate-400">
+        <Link href="/legal/aviso-legal" className="hover:text-slate-600">
+          Aviso legal
+        </Link>
+        <Link href="/legal/privacidad" className="hover:text-slate-600">
+          Privacidad
+        </Link>
+        <Link href="/legal/condiciones" className="hover:text-slate-600">
+          Condiciones
+        </Link>
+        <Link href="/contacto" className="hover:text-slate-600">
+          Contacto
+        </Link>
+      </nav>
     </div>
   );
 }
