@@ -18,7 +18,8 @@ const NEXT_STEPS = [
   {
     title: "Configuración de guardias",
     description: "Define presenciales/localizadas, plantillas y reglas.",
-    badge: "Fase 5",
+    badge: "Listo",
+    href: "/app/configuracion",
   },
   {
     title: "Reparto de guardias",

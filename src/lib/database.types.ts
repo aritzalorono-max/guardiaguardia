@@ -123,6 +123,42 @@ export type Database = {
         }
         Relationships: []
       }
+      guard_slots: {
+        Row: {
+          created_at: string
+          day_category: Database["public"]["Enums"]["guard_day_category"]
+          eligible: Database["public"]["Enums"]["slot_eligibility"]
+          id: string
+          label: string | null
+          modality: Database["public"]["Enums"]["guard_modality"]
+          position: number
+          service_id: string
+          weight: number
+        }
+        Insert: {
+          created_at?: string
+          day_category: Database["public"]["Enums"]["guard_day_category"]
+          eligible?: Database["public"]["Enums"]["slot_eligibility"]
+          id?: string
+          label?: string | null
+          modality?: Database["public"]["Enums"]["guard_modality"]
+          position?: number
+          service_id: string
+          weight?: number
+        }
+        Update: {
+          created_at?: string
+          day_category?: Database["public"]["Enums"]["guard_day_category"]
+          eligible?: Database["public"]["Enums"]["slot_eligibility"]
+          id?: string
+          label?: string | null
+          modality?: Database["public"]["Enums"]["guard_modality"]
+          position?: number
+          service_id?: string
+          weight?: number
+        }
+        Relationships: []
+      }
       holidays: {
         Row: {
           created_at: string
@@ -171,6 +207,33 @@ export type Database = {
           role?: Database["public"]["Enums"]["membership_role"]
           service_id?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      service_rules: {
+        Row: {
+          enabled: boolean
+          id: string
+          rule_key: string
+          service_id: string
+          updated_at: string
+          value: number | null
+        }
+        Insert: {
+          enabled?: boolean
+          id?: string
+          rule_key: string
+          service_id: string
+          updated_at?: string
+          value?: number | null
+        }
+        Update: {
+          enabled?: boolean
+          id?: string
+          rule_key?: string
+          service_id?: string
+          updated_at?: string
+          value?: number | null
         }
         Relationships: []
       }
@@ -227,8 +290,11 @@ export type Database = {
     }
     Enums: {
       doctor_kind: "adjunto" | "residente"
+      guard_day_category: "laborable" | "vispera" | "festivo"
+      guard_modality: "presencial" | "localizada" | "telefonica"
       membership_role: "admin" | "editor" | "viewer"
       resident_level: "R1" | "R2" | "R3" | "R4" | "R5"
+      slot_eligibility: "cualquiera" | "adjunto" | "residente"
     }
     CompositeTypes: Record<string, never>
   }

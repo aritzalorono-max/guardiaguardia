@@ -7,6 +7,7 @@ const LINKS = [
   { href: "/app", label: "Panel", exact: true },
   { href: "/app/medicos", label: "Médicos" },
   { href: "/app/calendario", label: "Calendario" },
+  { href: "/app/configuracion", label: "Configuración" },
   { href: "/app/guardias", label: "Guardias", soon: true },
 ];
 
