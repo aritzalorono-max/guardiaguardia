@@ -4,6 +4,7 @@ import { useCallbackRef } from "@/lib/use-callback-ref";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "@/components/ui/toast";
 import { nationalHolidays } from "@/lib/holidays";
 
 type DoctorLite = {
@@ -123,6 +124,7 @@ export function CalendarManager({
         }));
       if (rows.length) await supabase.from("absences").insert(rows);
     } catch {
+      toast.error("No se pudo guardar. Revisa tu conexión.");
       await reloadAbsences();
     } finally {
       setBusy(false);

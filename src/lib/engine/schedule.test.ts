@@ -237,3 +237,42 @@ describe("fillOpenSlots (rellenar huecos, Fase 8)", () => {
     expect(result.remainingGaps).toBe(1);
   });
 });
+
+describe("optimización por intercambios (Fase C)", () => {
+  it("iguala las guardias laborables (spread ≤ 1) en un trimestre sin romper reglas", () => {
+    const doctors = [adj("a"), adj("b"), adj("c"), adj("d")];
+    const slots: EngineSlot[] = [
+      { category: "laborable", modality: "localizada", eligible: "cualquiera", weight: 1 },
+    ];
+    const result = generateSchedule(baseInput({ doctors, slots, months: 3 }));
+
+    const counts = doctors.map((d) => result.perDoctor[d.id].byCategory.laborable);
+    expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
+
+    for (const d of doctors) {
+      const dates = result.assignments
+        .filter((a) => a.doctorId === d.id)
+        .map((a) => Date.parse(a.date))
+        .sort((x, y) => x - y);
+      for (let i = 1; i < dates.length; i++)
+        expect((dates[i] - dates[i - 1]) / 86_400_000).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it("iguala los festivos (spread ≤ 1) cuando la regla de findes lo permite", () => {
+    const doctors = [adj("a"), adj("b"), adj("c"), adj("d")];
+    const slots: EngineSlot[] = [
+      { category: "festivo", modality: "localizada", eligible: "cualquiera", weight: 2 },
+    ];
+    const result = generateSchedule(
+      baseInput({
+        doctors,
+        slots,
+        months: 3,
+        rules: { ...DEFAULT_RULES, noTwoWeekends: false },
+      }),
+    );
+    const counts = doctors.map((d) => result.perDoctor[d.id].byCategory.festivo);
+    expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
+  });
+});

@@ -126,39 +126,30 @@ export async function generateCycle(formData: FormData) {
     history,
   });
 
-  // Guardar ciclo + asignaciones.
-  const { data: cycle } = await supabase
-    .from("cycles")
-    .insert({
-      service_id: service.id,
-      name,
-      start_year: startYear,
-      start_month: startMonth,
-      months,
-      status: "draft",
-    })
-    .select("id")
-    .single();
+  // Guardar ciclo + asignaciones de forma ATÓMICA (una sola transacción).
+  const payload = result.assignments.map((a) => ({
+    date: a.date,
+    category: a.category,
+    modality: a.modality,
+    eligible: a.eligible,
+    doctor_id: a.doctorId,
+  }));
 
-  if (!cycle) throw new Error("No se pudo crear el ciclo");
+  const { data: cycleId, error } = await supabase.rpc(
+    "create_cycle_with_assignments",
+    {
+      p_service_id: service.id,
+      p_name: name,
+      p_start_year: startYear,
+      p_start_month: startMonth,
+      p_months: months,
+      p_assignments: payload,
+    },
+  );
 
-  if (result.assignments.length > 0) {
-    const rows = result.assignments.map((a) => ({
-      service_id: service.id,
-      cycle_id: cycle.id,
-      date: a.date,
-      category: a.category,
-      modality: a.modality,
-      eligible: a.eligible,
-      doctor_id: a.doctorId,
-    }));
-    // Inserción por lotes para no exceder límites.
-    for (let i = 0; i < rows.length; i += 500) {
-      await supabase.from("guard_assignments").insert(rows.slice(i, i + 500));
-    }
-  }
+  if (error || !cycleId) throw new Error("No se pudo crear el reparto");
 
-  redirect(`/app/guardias/${cycle.id}`);
+  redirect(`/app/guardias/${cycleId}`);
 }
 
 export async function deleteCycle(formData: FormData) {

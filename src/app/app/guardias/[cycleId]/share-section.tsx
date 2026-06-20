@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "@/components/ui/toast";
 
 type Link = { id: string; token: string; expires_at: string | null };
 
@@ -38,12 +39,13 @@ export function ShareSection({
     try {
       const expires_at =
         days > 0 ? new Date(Date.now() + days * 86_400_000).toISOString() : null;
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("share_links")
         .insert({ service_id: serviceId, cycle_id: cycleId, expires_at })
         .select("id, token, expires_at")
         .single();
-      if (data) setLinks((l) => [data, ...l]);
+      if (error || !data) toast.error("No se pudo crear el enlace. Reintenta.");
+      else setLinks((l) => [data, ...l]);
     } finally {
       setBusy(false);
     }

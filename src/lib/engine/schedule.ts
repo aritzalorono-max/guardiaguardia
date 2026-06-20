@@ -371,18 +371,22 @@ export function generateSchedule(input: EngineInput): EngineResult {
     }
   }
 
-  // Resumen por médico.
+  // Optimización (Fase C): igualar al máximo el nº de guardias por vía
+  // mediante intercambios, sin romper ninguna regla dura.
+  balanceLanes(assignments, eligibleByLane, rules, input.blockedGuardDates);
+
+  // Resumen por médico (a partir del resultado final).
   const perDoctor: Record<string, DoctorSummary> = {};
-  for (const d of candidates) {
-    const by: Record<DayCategory, number> = { laborable: 0, vispera: 0, festivo: 0 };
-    for (const [key, laneCount] of count) {
-      const lane = lanes.get(key)!;
-      by[lane.category] += laneCount.get(d.id) ?? 0;
-    }
+  for (const d of candidates)
     perDoctor[d.id] = {
-      total: by.laborable + by.vispera + by.festivo,
-      byCategory: by,
+      total: 0,
+      byCategory: { laborable: 0, vispera: 0, festivo: 0 },
     };
+  for (const a of assignments) {
+    if (a.doctorId && perDoctor[a.doctorId]) {
+      perDoctor[a.doctorId].byCategory[a.category]++;
+      perDoctor[a.doctorId].total++;
+    }
   }
 
   if (gaps.length > 0)
@@ -392,6 +396,82 @@ export function generateSchedule(input: EngineInput): EngineResult {
   assignments.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
   return { assignments, gaps, perDoctor, warnings };
+}
+
+/**
+ * Equilibra el número de guardias por vía (categoría+modalidad+elegibilidad)
+ * mediante intercambios: mueve guardias del médico que más tiene al que menos,
+ * siempre que el receptor cumpla todas las reglas duras. Reduce la diferencia
+ * a 1 como máximo en cada vía cuando la disponibilidad lo permite.
+ */
+function balanceLanes(
+  assignments: Assignment[],
+  eligibleByLane: Map<string, EngineDoctor[]>,
+  rules: EngineRules,
+  blockedGuardDates: Map<string, Set<string>>,
+) {
+  const baseGap = rules.noConsecutive || rules.freeDayAfter || rules.rest12h ? 2 : 1;
+  const gapDiff = Math.max(baseGap, rules.minDaysBetween ?? 1);
+
+  const canAssign = (doc: EngineDoctor, date: string, exclude: Assignment): boolean => {
+    if (blockedGuardDates.get(doc.id)?.has(date)) return false;
+    const info = infoFromDate(date);
+    let monthN = 0;
+    for (const a of assignments) {
+      if (a.doctorId !== doc.id || a === exclude) continue;
+      if (a.date === date) return false;
+      const e2 = infoFromDate(a.date);
+      if (Math.abs(e2.epoch - info.epoch) < gapDiff) return false;
+      if (
+        rules.noTwoWeekends &&
+        info.weekendId != null &&
+        e2.weekendId != null &&
+        Math.abs(e2.weekendId - info.weekendId) === 7
+      )
+        return false;
+      if (a.date.slice(0, 7) === info.monthKey) monthN++;
+    }
+    const cap = doc.kind === "residente" ? rules.maxPerMonthResident : rules.maxPerMonthAdjunto;
+    if (cap != null && monthN >= cap) return false;
+    return true;
+  };
+
+  for (const [key, elig] of eligibleByLane) {
+    if (elig.length < 2) continue;
+    const laneAssignments = assignments.filter(
+      (a) => a.doctorId != null && `${a.category}|${a.modality}|${a.eligible}` === key,
+    );
+    if (laneAssignments.length === 0) continue;
+
+    const count = new Map<string, number>();
+    for (const d of elig) count.set(d.id, 0);
+    for (const a of laneAssignments)
+      count.set(a.doctorId!, (count.get(a.doctorId!) ?? 0) + 1);
+
+    const maxIter = laneAssignments.length * elig.length + 10;
+    let iter = 0;
+    let moved = true;
+    while (moved && iter++ < maxIter) {
+      moved = false;
+      const desc = [...elig].sort((a, b) => (count.get(b.id) ?? 0) - (count.get(a.id) ?? 0));
+      const asc = [...desc].reverse();
+      outer: for (const hi of desc) {
+        for (const lo of asc) {
+          if ((count.get(hi.id) ?? 0) - (count.get(lo.id) ?? 0) <= 1) continue;
+          for (const s of laneAssignments) {
+            if (s.doctorId !== hi.id) continue;
+            if (canAssign(lo, s.date, s)) {
+              s.doctorId = lo.id;
+              count.set(hi.id, count.get(hi.id)! - 1);
+              count.set(lo.id, (count.get(lo.id) ?? 0) + 1);
+              moved = true;
+              break outer;
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
 // ============================================================

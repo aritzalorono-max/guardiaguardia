@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "@/components/ui/toast";
 import {
   fillOpenSlots,
   type EngineRules,
@@ -244,10 +245,11 @@ export function CycleView({
       ),
     );
 
-    await supabase
+    const { error: upErr } = await supabase
       .from("guard_assignments")
       .update({ doctor_id: newDoctor, manual: true })
       .eq("id", editing.id);
+    if (upErr) toast.error("No se pudo guardar el cambio. Reintenta.");
 
     const { data: auditRow } = await supabase
       .from("assignment_audit")
@@ -321,10 +323,13 @@ export function CycleView({
         setAssignments((arr) =>
           arr.map((a) => (idset.has(a.id) ? { ...a, doctor_id: null, manual: true } : a)),
         );
+        toast.success(`Liberadas ${affected.length} guardia(s).`);
       }
       setLeaveDoctor("");
       setLeaveFrom("");
       setLeaveTo("");
+    } catch {
+      toast.error("No se pudo registrar la baja. Reintenta.");
     } finally {
       setBusy(false);
     }
@@ -361,7 +366,10 @@ export function CycleView({
         rules,
         blockedGuardDates: effectiveBlocked,
       });
-      if (filled.length === 0) return;
+      if (filled.length === 0) {
+        toast.error("No se pudo rellenar ningún hueco (nadie disponible).");
+        return;
+      }
 
       for (const f of filled) {
         await supabase
@@ -393,6 +401,9 @@ export function CycleView({
           byId.has(a.id) ? { ...a, doctor_id: byId.get(a.id)!, manual: false } : a,
         ),
       );
+      toast.success(`Rellenados ${filled.length} hueco(s).`);
+    } catch {
+      toast.error("No se pudieron rellenar los huecos. Reintenta.");
     } finally {
       setBusy(false);
     }

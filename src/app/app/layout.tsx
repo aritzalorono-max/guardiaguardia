@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { AppNav } from "./app-nav";
+import { Toaster } from "@/components/ui/toast";
 
 export default async function AppLayout({
   children,
@@ -56,6 +57,7 @@ export default async function AppLayout({
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8">
         {children}
       </main>
+      <Toaster />
     </div>
   );
 }

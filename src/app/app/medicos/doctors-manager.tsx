@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "@/components/ui/toast";
 import type { Tables, Enums } from "@/lib/database.types";
 import { Field, SelectField, Toggle, SubmitButton, Alert } from "@/components/ui/form";
 
@@ -121,7 +122,7 @@ export function DoctorsManager({
     const supabase = createClient();
     const { error } = await supabase.from("doctors").delete().eq("id", d.id);
     if (error) {
-      alert("No se ha podido eliminar.");
+      toast.error("No se ha podido eliminar.");
       return;
     }
     router.refresh();

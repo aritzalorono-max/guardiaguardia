@@ -444,6 +444,17 @@ export type Database = {
     }
     Views: Record<string, never>
     Functions: {
+      create_cycle_with_assignments: {
+        Args: {
+          p_assignments: Json
+          p_months: number
+          p_name: string | null
+          p_service_id: string
+          p_start_month: number
+          p_start_year: number
+        }
+        Returns: string
+      }
       create_service: {
         Args: {
           p_approx_doctors: number
