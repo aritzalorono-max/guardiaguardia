@@ -3,12 +3,17 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const LINKS = [
+const LINKS: {
+  href: string;
+  label: string;
+  exact?: boolean;
+  soon?: boolean;
+}[] = [
   { href: "/app", label: "Panel", exact: true },
   { href: "/app/medicos", label: "Médicos" },
   { href: "/app/calendario", label: "Calendario" },
   { href: "/app/configuracion", label: "Configuración" },
-  { href: "/app/guardias", label: "Guardias", soon: true },
+  { href: "/app/guardias", label: "Guardias" },
 ];
 
 export function AppNav() {

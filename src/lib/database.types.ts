@@ -45,6 +45,78 @@ export type Database = {
         }
         Relationships: []
       }
+      cycles: {
+        Row: {
+          created_at: string
+          id: string
+          months: number
+          name: string | null
+          service_id: string
+          start_month: number
+          start_year: number
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          months: number
+          name?: string | null
+          service_id: string
+          start_month: number
+          start_year: number
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          months?: number
+          name?: string | null
+          service_id?: string
+          start_month?: number
+          start_year?: number
+          status?: string
+        }
+        Relationships: []
+      }
+      guard_assignments: {
+        Row: {
+          category: Database["public"]["Enums"]["guard_day_category"]
+          created_at: string
+          cycle_id: string
+          date: string
+          doctor_id: string | null
+          eligible: Database["public"]["Enums"]["slot_eligibility"]
+          id: string
+          manual: boolean
+          modality: Database["public"]["Enums"]["guard_modality"]
+          service_id: string
+        }
+        Insert: {
+          category: Database["public"]["Enums"]["guard_day_category"]
+          created_at?: string
+          cycle_id: string
+          date: string
+          doctor_id?: string | null
+          eligible: Database["public"]["Enums"]["slot_eligibility"]
+          id?: string
+          manual?: boolean
+          modality: Database["public"]["Enums"]["guard_modality"]
+          service_id: string
+        }
+        Update: {
+          category?: Database["public"]["Enums"]["guard_day_category"]
+          created_at?: string
+          cycle_id?: string
+          date?: string
+          doctor_id?: string | null
+          eligible?: Database["public"]["Enums"]["slot_eligibility"]
+          id?: string
+          manual?: boolean
+          modality?: Database["public"]["Enums"]["guard_modality"]
+          service_id?: string
+        }
+        Relationships: []
+      }
       day_types: {
         Row: {
           allows_guard: boolean

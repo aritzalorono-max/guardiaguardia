@@ -24,7 +24,8 @@ const NEXT_STEPS = [
   {
     title: "Reparto de guardias",
     description: "Genera el reparto justo y ajústalo a mano.",
-    badge: "Fase 6",
+    badge: "Listo",
+    href: "/app/guardias",
   },
 ];
 

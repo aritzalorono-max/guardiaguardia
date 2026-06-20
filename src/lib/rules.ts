@@ -152,3 +152,32 @@ export const RULE_GROUPS: RuleGroup[] = [
 ];
 
 export const ALL_RULES: RuleDef[] = RULE_GROUPS.flatMap((g) => g.rules);
+
+import type { EngineRules } from "@/lib/engine/schedule";
+
+/** Convierte las filas de service_rules (+ valores por defecto) en EngineRules. */
+export function resolveEngineRules(
+  rows: { rule_key: string; enabled: boolean; value: number | null }[],
+): EngineRules {
+  const stored = new Map(rows.map((r) => [r.rule_key, r]));
+  const def = new Map(ALL_RULES.map((r) => [r.key, r]));
+  const on = (key: string) =>
+    stored.has(key) ? stored.get(key)!.enabled : (def.get(key)?.defaultEnabled ?? false);
+  const val = (key: string) => {
+    const r = stored.get(key);
+    return (r ? r.value : null) ?? def.get(key)?.defaultValue ?? null;
+  };
+  return {
+    noConsecutive: on("no_consecutive"),
+    freeDayAfter: on("free_day_after"),
+    rest12h: on("rest_12h"),
+    noTwoWeekends: on("no_two_weekends"),
+    minDaysBetween: on("min_days_between") ? val("min_days_between") : null,
+    maxPerMonthResident: on("max_per_month_resident") ? val("max_per_month_resident") : null,
+    maxPerMonthAdjunto: on("max_per_month_adjunto") ? val("max_per_month_adjunto") : null,
+    presencialOnlyResidents: on("presencial_only_residents"),
+    localizadaOnlyAdjuntos: on("localizada_only_adjuntos"),
+    partTimeNoPenalty: on("parttime_no_penalty"),
+    considerHistory: on("consider_history"),
+  };
+}
