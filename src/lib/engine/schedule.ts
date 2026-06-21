@@ -485,6 +485,8 @@ export interface OpenAssignment {
   modality: Modality;
   eligible: Eligibility;
   doctorId: string | null;
+  /** Quien hace realmente la guardia si el titular está de baja. */
+  substituteId?: string | null;
 }
 
 export interface FillResult {
@@ -675,8 +677,11 @@ export function validateSchedule(params: {
   doctors: EngineDoctor[];
   rules: EngineRules;
   blockedGuardDates: Map<string, Set<string>>;
+  /** doctorId -> fechas de baja (asignable pero necesita sustituto). */
+  substituteNeeded?: Map<string, Set<string>>;
 }): ValidationResult {
   const { rules } = params;
+  const substituteNeeded = params.substituteNeeded ?? new Map<string, Set<string>>();
   const issues: ValidationIssue[] = [];
   const docById = new Map(params.doctors.map((d) => [d.id, d]));
 
@@ -728,6 +733,32 @@ export function validateSchedule(params: {
         message: `${a.date}: el médico está de ausencia/baja y no puede hacer guardia ese día.`,
         date: a.date,
         doctorId: a.doctorId,
+      });
+    }
+  }
+
+  // 2b) Sustitutos: si el titular está de baja, debe haber un sustituto válido.
+  for (const a of params.assignments) {
+    if (!a.doctorId) continue;
+    if (!substituteNeeded.get(a.doctorId)?.has(a.date)) continue;
+    const sub = a.substituteId ?? null;
+    if (!sub) {
+      issues.push({
+        severity: "error",
+        code: "sin_sustituto",
+        message: `${a.date}: el titular está de baja y no tiene sustituto que cubra la guardia.`,
+        date: a.date,
+        doctorId: a.doctorId,
+      });
+      continue;
+    }
+    if (substituteNeeded.get(sub)?.has(a.date) || params.blockedGuardDates.get(sub)?.has(a.date)) {
+      issues.push({
+        severity: "error",
+        code: "sustituto_no_disponible",
+        message: `${a.date}: el sustituto asignado tampoco está disponible ese día.`,
+        date: a.date,
+        doctorId: sub,
       });
     }
   }
@@ -939,4 +970,71 @@ export function autoFixSchedule(params: {
   }).errorCount;
 
   return { changes, releasedCount, refilledCount, remainingErrors };
+}
+
+// ============================================================
+// Sustitutos: para cada guardia cuyo titular está de baja ese día,
+// elige a alguien que NO esté de baja (ni bloqueado) para que la haga.
+// Si el primer candidato también estuviera de baja, simplemente no se
+// elige (solo se consideran personas plenamente disponibles).
+// ============================================================
+
+export function assignSubstitutes(params: {
+  assignments: OpenAssignment[];
+  doctors: EngineDoctor[];
+  rules: EngineRules;
+  blockedGuardDates: Map<string, Set<string>>;
+  /** doctorId -> fechas en las que está de baja (asignable pero no puede). */
+  substituteNeeded: Map<string, Set<string>>;
+}): { id: string; substituteId: string | null }[] {
+  const candidates = params.doctors.filter((d) => d.doesGuards && d.isActive);
+  const fullyAvailable = (id: string, date: string) =>
+    !params.blockedGuardDates.get(id)?.has(date) &&
+    !params.substituteNeeded.get(id)?.has(date);
+
+  const titularCount = new Map<string, number>();
+  for (const a of params.assignments)
+    if (a.doctorId) titularCount.set(a.doctorId, (titularCount.get(a.doctorId) ?? 0) + 1);
+
+  const dayUsage = new Map<string, Set<string>>();
+  for (const a of params.assignments) {
+    if (!a.doctorId) continue;
+    (dayUsage.get(a.date) ?? dayUsage.set(a.date, new Set()).get(a.date)!).add(a.doctorId);
+  }
+
+  const subsCount = new Map<string, number>();
+  const catPriority: Record<DayCategory, number> = { festivo: 0, vispera: 1, laborable: 2 };
+  const needing = params.assignments
+    .filter((a) => a.doctorId && params.substituteNeeded.get(a.doctorId)?.has(a.date))
+    .sort((a, b) => catPriority[a.category] - catPriority[b.category] || (a.date < b.date ? -1 : 1));
+
+  const result: { id: string; substituteId: string | null }[] = [];
+  for (const a of needing) {
+    const used = dayUsage.get(a.date) ?? new Set<string>();
+    const pool = candidates.filter(
+      (d) =>
+        d.id !== a.doctorId &&
+        fullyAvailable(d.id, a.date) &&
+        canCover(d, a.modality, a.eligible, params.rules) &&
+        !used.has(d.id),
+    );
+    if (pool.length === 0) {
+      result.push({ id: a.id, substituteId: null });
+      continue;
+    }
+    pool.sort((x, y) => {
+      const sx = subsCount.get(x.id) ?? 0;
+      const sy = subsCount.get(y.id) ?? 0;
+      if (sx !== sy) return sx - sy;
+      const tx = titularCount.get(x.id) ?? 0;
+      const ty = titularCount.get(y.id) ?? 0;
+      if (tx !== ty) return tx - ty;
+      return x.id < y.id ? -1 : 1;
+    });
+    const chosen = pool[0];
+    subsCount.set(chosen.id, (subsCount.get(chosen.id) ?? 0) + 1);
+    (dayUsage.get(a.date) ?? dayUsage.set(a.date, new Set()).get(a.date)!).add(chosen.id);
+    result.push({ id: a.id, substituteId: chosen.id });
+  }
+  return result;
 }

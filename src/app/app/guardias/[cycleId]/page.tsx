@@ -62,12 +62,12 @@ export default async function CycleDetailPage({
   ] = await Promise.all([
     supabase
       .from("guard_assignments")
-      .select("id, date, category, modality, eligible, doctor_id, manual")
+      .select("id, date, category, modality, eligible, doctor_id, substitute_doctor_id, manual")
       .eq("cycle_id", cycleId)
       .order("date", { ascending: true }),
     supabase.from("doctors").select("id, first_name, last_name, kind, does_guards, is_active"),
     supabase.from("service_rules").select("rule_key, enabled, value"),
-    supabase.from("day_types").select("id, allows_guard"),
+    supabase.from("day_types").select("id, allows_guard, needs_substitute"),
     supabase
       .from("absences")
       .select("doctor_id, start_date, end_date, day_type_id")
@@ -93,12 +93,17 @@ export default async function CycleDetailPage({
   const rules = resolveEngineRules(ruleRows ?? []);
 
   const allowsGuard = new Map((dayTypeRows ?? []).map((t) => [t.id, t.allows_guard]));
+  const needsSub = new Map((dayTypeRows ?? []).map((t) => [t.id, t.needs_substitute]));
   const blocked: Record<string, string[]> = {};
+  const substituteNeeded: Record<string, string[]> = {};
   for (const a of absenceRows ?? []) {
-    if (allowsGuard.get(a.day_type_id)) continue;
     const from = a.start_date < periodStart ? periodStart : a.start_date;
     const to = a.end_date > periodEnd ? periodEnd : a.end_date;
-    (blocked[a.doctor_id] ??= []).push(...eachDateInclusive(from, to));
+    if (needsSub.get(a.day_type_id)) {
+      (substituteNeeded[a.doctor_id] ??= []).push(...eachDateInclusive(from, to));
+    } else if (!allowsGuard.get(a.day_type_id)) {
+      (blocked[a.doctor_id] ??= []).push(...eachDateInclusive(from, to));
+    }
   }
 
   return (
@@ -135,6 +140,7 @@ export default async function CycleDetailPage({
           initialLeaves={leaveRows ?? []}
           rules={rules}
           blocked={blocked}
+          substituteNeeded={substituteNeeded}
         />
         <ShareSection
           cycleId={cycleId}

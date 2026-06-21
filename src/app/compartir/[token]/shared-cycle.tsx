@@ -29,6 +29,8 @@ type AssignmentLite = {
   modality: string;
   doctor: string | null;
   surname: string | null;
+  substitute: string | null;
+  substitute_surname: string | null;
 };
 
 export type SharedData = {
@@ -53,13 +55,14 @@ function downloadICS(items: AssignmentLite[], filename: string) {
   };
   const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//GuardiaGuardia//ES//"];
   items.forEach((a, i) => {
-    if (!a.doctor) return;
+    const doer = a.substitute ?? a.doctor;
+    if (!doer) return;
     lines.push(
       "BEGIN:VEVENT",
       `UID:gg-${i}-${a.date}@guardiaguardia`,
       `DTSTART;VALUE=DATE:${icsDate(a.date)}`,
       `DTEND;VALUE=DATE:${nextDay(a.date)}`,
-      `SUMMARY:Guardia ${MOD_LABEL[a.modality] ?? ""} - ${a.doctor}`,
+      `SUMMARY:Guardia ${MOD_LABEL[a.modality] ?? ""} - ${doer}`,
       "END:VEVENT",
     );
   });
@@ -79,9 +82,13 @@ export function SharedCycle({ data }: { data: SharedData }) {
 
   const doctorNames = useMemo(
     () =>
-      [...new Set(assignments.map((a) => a.doctor).filter(Boolean) as string[])].sort(
-        (a, b) => a.localeCompare(b),
-      ),
+      [
+        ...new Set(
+          assignments
+            .map((a) => a.substitute ?? a.doctor)
+            .filter(Boolean) as string[],
+        ),
+      ].sort((a, b) => a.localeCompare(b)),
     [assignments],
   );
 
@@ -116,7 +123,7 @@ export function SharedCycle({ data }: { data: SharedData }) {
     const items =
       filter === "__all__"
         ? assignments
-        : assignments.filter((a) => a.doctor === filter);
+        : assignments.filter((a) => (a.substitute ?? a.doctor) === filter);
     downloadICS(items, "guardias.ics");
   }
 
@@ -212,7 +219,9 @@ export function SharedCycle({ data }: { data: SharedData }) {
                   if (day === null) return <div key={idx} />;
                   const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
                   const items = (byDate.get(date) ?? []).filter(
-                    (a) => filter === "__all__" || a.doctor === filter,
+                    (a) =>
+                      filter === "__all__" ||
+                      (a.substitute ?? a.doctor) === filter,
                   );
                   return (
                     <div key={idx} className="min-h-[64px] rounded-lg border border-slate-100 p-1">
@@ -221,11 +230,18 @@ export function SharedCycle({ data }: { data: SharedData }) {
                         {items.map((a, i) => (
                           <div
                             key={i}
+                            title={
+                              a.substitute
+                                ? `${a.substitute} (sustituye a ${a.doctor}, de baja)`
+                                : (a.doctor ?? "Hueco")
+                            }
                             className={`truncate rounded px-1 py-0.5 text-[10px] font-medium ${
                               a.doctor ? CAT_CLASS[a.category] : "bg-red-100 text-red-700"
                             }`}
                           >
-                            {a.doctor ? `${a.surname} ·${MOD_LETTER[a.modality]}` : "Hueco"}
+                            {a.doctor
+                              ? `${a.substitute_surname ?? a.surname} ·${MOD_LETTER[a.modality]}${a.substitute ? " ↺" : ""}`
+                              : "Hueco"}
                           </div>
                         ))}
                       </div>

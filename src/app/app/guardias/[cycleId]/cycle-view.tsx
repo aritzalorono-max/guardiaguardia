@@ -7,6 +7,7 @@ import {
   fillOpenSlots,
   validateSchedule,
   autoFixSchedule,
+  assignSubstitutes,
   type EngineRules,
   type EngineDoctor,
   type OpenAssignment,
@@ -43,6 +44,7 @@ type Assignment = {
   modality: "presencial" | "localizada" | "telefonica";
   eligible: "cualquiera" | "adjunto" | "residente";
   doctor_id: string | null;
+  substitute_doctor_id: string | null;
   manual: boolean;
 };
 type AuditRow = {
@@ -99,6 +101,7 @@ export function CycleView({
   initialLeaves,
   rules,
   blocked,
+  substituteNeeded,
 }: {
   cycle: {
     id: string;
@@ -116,6 +119,7 @@ export function CycleView({
   initialLeaves: Leave[];
   rules: EngineRules;
   blocked: Record<string, string[]>;
+  substituteNeeded: Record<string, string[]>;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [assignments, setAssignments] = useState<Assignment[]>(initialAssignments);
@@ -159,6 +163,14 @@ export function CycleView({
     }
     return m;
   }, [blocked, leaves]);
+
+  // Días de baja por médico (asignable pero necesita sustituto).
+  const substituteNeededMap = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const [id, dates] of Object.entries(substituteNeeded))
+      m.set(id, new Set(dates));
+    return m;
+  }, [substituteNeeded]);
 
   const gapDiff = Math.max(
     rules.noConsecutive || rules.freeDayAfter || rules.rest12h ? 2 : 1,
@@ -216,14 +228,16 @@ export function CycleView({
       modality: a.modality,
       eligible: a.eligible,
       doctorId: a.doctor_id,
+      substituteId: a.substitute_doctor_id,
     }));
     return validateSchedule({
       assignments: open,
       doctors: engineDoctors,
       rules,
       blockedGuardDates: effectiveBlocked,
+      substituteNeeded: substituteNeededMap,
     });
-  }, [assignments, doctors, rules, effectiveBlocked]);
+  }, [assignments, doctors, rules, effectiveBlocked, substituteNeededMap]);
 
   // Avisos para asignar un médico a la guardia en edición
   function warningsFor(doctorId: string): string[] {
@@ -268,13 +282,15 @@ export function CycleView({
 
     setAssignments((arr) =>
       arr.map((a) =>
-        a.id === editing.id ? { ...a, doctor_id: newDoctor, manual: true } : a,
+        a.id === editing.id
+          ? { ...a, doctor_id: newDoctor, substitute_doctor_id: null, manual: true }
+          : a,
       ),
     );
 
     const { error: upErr } = await supabase
       .from("guard_assignments")
-      .update({ doctor_id: newDoctor, manual: true })
+      .update({ doctor_id: newDoctor, substitute_doctor_id: null, manual: true })
       .eq("id", editing.id);
     if (upErr) toast.error("No se pudo guardar el cambio. Reintenta.");
 
@@ -510,6 +526,59 @@ export function CycleView({
     }
   }
 
+  // Recalcular los sustitutos de las guardias cuyo titular está de baja.
+  async function recomputeSubstitutes() {
+    setBusy(true);
+    try {
+      const engineDoctors: EngineDoctor[] = doctors.map((d) => ({
+        id: d.id,
+        kind: d.kind,
+        doesGuards: d.does_guards,
+        isActive: d.is_active,
+        partTime: false,
+      }));
+      const open: OpenAssignment[] = assignments.map((a) => ({
+        id: a.id,
+        date: a.date,
+        category: a.category,
+        modality: a.modality,
+        eligible: a.eligible,
+        doctorId: a.doctor_id,
+      }));
+      const subs = assignSubstitutes({
+        assignments: open,
+        doctors: engineDoctors,
+        rules,
+        blockedGuardDates: effectiveBlocked,
+        substituteNeeded: substituteNeededMap,
+      });
+      const newSub = new Map<string, string | null>();
+      for (const s of subs) newSub.set(s.id, s.substituteId);
+
+      const changed = assignments.filter(
+        (a) => (a.substitute_doctor_id ?? null) !== (newSub.get(a.id) ?? null),
+      );
+      if (changed.length === 0) {
+        toast.success("Los sustitutos ya estaban actualizados.");
+        return;
+      }
+      for (const a of changed) {
+        await supabase
+          .from("guard_assignments")
+          .update({ substitute_doctor_id: newSub.get(a.id) ?? null })
+          .eq("id", a.id);
+      }
+      setAssignments((arr) =>
+        arr.map((a) => ({ ...a, substitute_doctor_id: newSub.get(a.id) ?? null })),
+      );
+      toast.success(`Sustitutos recalculados (${changed.length} cambio(s)).`);
+    } catch {
+      toast.error("No se pudieron recalcular los sustitutos.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const monthsList = Array.from({ length: cycle.months }, (_, i) => {
     const d = new Date(Date.UTC(cycle.start_year, cycle.start_month + i, 1));
     return { year: d.getUTCFullYear(), month: d.getUTCMonth() };
@@ -690,6 +759,20 @@ export function CycleView({
           Si no indicas &laquo;hasta&raquo;, la baja se aplica hasta el final del
           periodo ({cycleEnd}).
         </p>
+        <div className="mt-4 border-t border-slate-100 pt-4">
+          <p className="text-xs text-slate-500">
+            Las guardias de alguien de baja se le asignan igual, pero las cubre
+            un <strong>sustituto</strong> (marcado con ↺). Tras marcar bajas,
+            recalcula los sustitutos:
+          </p>
+          <button
+            onClick={recomputeSubstitutes}
+            disabled={busy}
+            className="mt-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            Recalcular sustitutos
+          </button>
+        </div>
       </div>
 
       {gaps > 0 && (
@@ -780,14 +863,27 @@ export function CycleView({
                               setEditing(a);
                               setPick(a.doctor_id ?? "");
                             }}
-                            title={a.doctor_id ? docName.get(a.doctor_id) : "Hueco"}
+                            title={
+                              a.doctor_id
+                                ? a.substitute_doctor_id
+                                  ? `${docName.get(a.substitute_doctor_id)} (sustituye a ${docName.get(a.doctor_id)}, de baja)`
+                                  : docName.get(a.doctor_id)
+                                : "Hueco"
+                            }
                             className={`block w-full truncate rounded px-1 py-0.5 text-left text-[10px] font-medium hover:ring-1 hover:ring-slate-300 ${
                               a.doctor_id ? CAT_CLASS[a.category] : "bg-red-100 text-red-700"
                             }`}
                           >
                             {a.doctor_id
-                              ? `${docById.get(a.doctor_id)?.last_name ?? "?"} ·${MOD_LETTER[a.modality]}`
+                              ? a.substitute_doctor_id
+                                ? `${docById.get(a.substitute_doctor_id)?.last_name ?? "?"} ·${MOD_LETTER[a.modality]}`
+                                : `${docById.get(a.doctor_id)?.last_name ?? "?"} ·${MOD_LETTER[a.modality]}`
                               : "Hueco"}
+                            {a.substitute_doctor_id && (
+                              <span className="ml-0.5 text-indigo-500" title="Sustitución">
+                                ↺
+                              </span>
+                            )}
                             {a.manual && <span className="ml-0.5 text-slate-400">✎</span>}
                           </button>
                         ))}

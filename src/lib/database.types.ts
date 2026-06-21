@@ -126,6 +126,7 @@ export type Database = {
           manual: boolean
           modality: Database["public"]["Enums"]["guard_modality"]
           service_id: string
+          substitute_doctor_id: string | null
         }
         Insert: {
           category: Database["public"]["Enums"]["guard_day_category"]
@@ -138,6 +139,7 @@ export type Database = {
           manual?: boolean
           modality: Database["public"]["Enums"]["guard_modality"]
           service_id: string
+          substitute_doctor_id?: string | null
         }
         Update: {
           category?: Database["public"]["Enums"]["guard_day_category"]
@@ -150,6 +152,7 @@ export type Database = {
           manual?: boolean
           modality?: Database["public"]["Enums"]["guard_modality"]
           service_id?: string
+          substitute_doctor_id?: string | null
         }
         Relationships: []
       }
@@ -196,6 +199,7 @@ export type Database = {
           id: string
           is_system: boolean
           name: string
+          needs_substitute: boolean
           service_id: string
         }
         Insert: {
@@ -207,6 +211,7 @@ export type Database = {
           id?: string
           is_system?: boolean
           name: string
+          needs_substitute?: boolean
           service_id: string
         }
         Update: {
@@ -218,6 +223,7 @@ export type Database = {
           id?: string
           is_system?: boolean
           name?: string
+          needs_substitute?: boolean
           service_id?: string
         }
         Relationships: []

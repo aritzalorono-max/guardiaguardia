@@ -4,6 +4,7 @@ import {
   fillOpenSlots,
   validateSchedule,
   autoFixSchedule,
+  assignSubstitutes,
   DEFAULT_RULES,
   type EngineDoctor,
   type EngineInput,
@@ -391,5 +392,55 @@ describe("autoFixSchedule (autocorrección)", () => {
 
     expect(assignments[0].doctorId).not.toBeNull();
     expect(fix.remainingErrors).toBe(0);
+  });
+});
+
+describe("assignSubstitutes (sustitutos por baja)", () => {
+  const A = (id: string, date: string, doctorId: string | null): OpenAssignment => ({
+    id, date, category: "laborable", modality: "presencial", eligible: "cualquiera", doctorId,
+  });
+
+  it("asigna sustituto cuando el titular está de baja", () => {
+    const doctors = [adj("a"), adj("b")];
+    const assignments = [A("s1", "2026-03-02", "a")];
+    const subNeeded = new Map([["a", new Set(["2026-03-02"])]]);
+    const subs = assignSubstitutes({
+      assignments, doctors, rules: { ...DEFAULT_RULES }, blockedGuardDates: new Map(), substituteNeeded: subNeeded,
+    });
+    expect(subs).toHaveLength(1);
+    expect(subs[0].substituteId).toBe("b");
+  });
+
+  it("nunca elige como sustituto a alguien que también está de baja", () => {
+    const doctors = [adj("a"), adj("b"), adj("c")];
+    const assignments = [A("s1", "2026-03-02", "a")];
+    // a y b de baja ese día; solo c está disponible
+    const subNeeded = new Map([
+      ["a", new Set(["2026-03-02"])],
+      ["b", new Set(["2026-03-02"])],
+    ]);
+    const subs = assignSubstitutes({
+      assignments, doctors, rules: { ...DEFAULT_RULES }, blockedGuardDates: new Map(), substituteNeeded: subNeeded,
+    });
+    expect(subs[0].substituteId).toBe("c");
+  });
+
+  it("deja sin sustituto si no hay nadie disponible (y validación lo detecta)", () => {
+    const doctors = [adj("a"), adj("b")];
+    const assignments: OpenAssignment[] = [A("s1", "2026-03-02", "a")];
+    const subNeeded = new Map([
+      ["a", new Set(["2026-03-02"])],
+      ["b", new Set(["2026-03-02"])],
+    ]);
+    const subs = assignSubstitutes({
+      assignments, doctors, rules: { ...DEFAULT_RULES }, blockedGuardDates: new Map(), substituteNeeded: subNeeded,
+    });
+    expect(subs[0].substituteId).toBeNull();
+
+    assignments[0].substituteId = subs[0].substituteId;
+    const v = validateSchedule({
+      assignments, doctors, rules: { ...DEFAULT_RULES }, blockedGuardDates: new Map(), substituteNeeded: subNeeded,
+    });
+    expect(v.issues.some((i) => i.code === "sin_sustituto")).toBe(true);
   });
 });

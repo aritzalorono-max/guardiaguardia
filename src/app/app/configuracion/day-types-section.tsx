@@ -23,6 +23,7 @@ export function DayTypesSection({
   const [color, setColor] = useState("#0ea5e9");
   const [worked, setWorked] = useState(false);
   const [guard, setGuard] = useState(false);
+  const [sub, setSub] = useState(false);
 
   async function patchType(id: string, patch: Partial<DayType>) {
     setTypes((t) => t.map((x) => (x.id === id ? { ...x, ...patch } : x)));
@@ -44,6 +45,7 @@ export function DayTypesSection({
         color,
         counts_as_worked: worked,
         allows_guard: guard,
+        needs_substitute: sub,
         is_system: false,
       })
       .select("*")
@@ -54,6 +56,7 @@ export function DayTypesSection({
       setColor("#0ea5e9");
       setWorked(false);
       setGuard(false);
+      setSub(false);
     }
   }
 
@@ -72,9 +75,11 @@ export function DayTypesSection({
   return (
     <div className="space-y-6">
       <p className="text-sm text-slate-600">
-        Cada tipo define dos cosas: si el día <strong>cuenta como trabajado</strong>{" "}
-        (para el reparto proporcional) y si <strong>permite hacer guardia</strong>.
-        Los cuatro tipos base no se pueden borrar.
+        Cada tipo define si el día <strong>cuenta como trabajado</strong> (para el
+        reparto proporcional), si <strong>permite hacer guardia</strong> y si{" "}
+        <strong>necesita sustituto</strong> (como una baja: se le asigna la
+        guardia pero la cubre otra persona). Los cuatro tipos base no se pueden
+        borrar.
       </p>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -85,6 +90,7 @@ export function DayTypesSection({
               <th className="px-4 py-3 font-medium">Nombre</th>
               <th className="px-4 py-3 font-medium">¿Trabaja?</th>
               <th className="px-4 py-3 font-medium">¿Guardia?</th>
+              <th className="px-4 py-3 font-medium">¿Sustituto?</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
@@ -131,6 +137,13 @@ export function DayTypesSection({
                     checked={t.allows_guard}
                     disabled={t.is_system}
                     onChange={(v) => patchType(t.id, { allows_guard: v })}
+                  />
+                </td>
+                <td className="px-4 py-3">
+                  <Switch
+                    checked={t.needs_substitute}
+                    disabled={t.is_system || !t.allows_guard}
+                    onChange={(v) => patchType(t.id, { needs_substitute: v })}
                   />
                 </td>
                 <td className="px-4 py-3 text-right">
@@ -186,7 +199,16 @@ export function DayTypesSection({
           <Toggle
             label="Permite hacer guardia"
             checked={guard}
-            onChange={setGuard}
+            onChange={(v) => {
+              setGuard(v);
+              if (!v) setSub(false);
+            }}
+          />
+          <Toggle
+            label="Necesita sustituto (tipo baja)"
+            description="Se le asigna la guardia, pero la cubre otra persona."
+            checked={sub}
+            onChange={setSub}
           />
         </div>
         <button

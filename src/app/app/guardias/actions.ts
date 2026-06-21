@@ -5,9 +5,11 @@ import { createClient } from "@/lib/supabase/server";
 import { resolveEngineRules } from "@/lib/rules";
 import {
   generateSchedule,
+  assignSubstitutes,
   type DayCategory,
   type EngineDoctor,
   type EngineSlot,
+  type OpenAssignment,
 } from "@/lib/engine/schedule";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -53,7 +55,7 @@ export async function generateCycle(formData: FormData) {
       .select("id, kind, does_guards, is_active, part_time"),
     supabase.from("guard_slots").select("day_category, modality, eligible, weight"),
     supabase.from("service_rules").select("rule_key, enabled, value"),
-    supabase.from("day_types").select("id, allows_guard"),
+    supabase.from("day_types").select("id, allows_guard, needs_substitute"),
     supabase
       .from("absences")
       .select("doctor_id, start_date, end_date, day_type_id")
@@ -88,19 +90,27 @@ export async function generateCycle(formData: FormData) {
 
   const rules = resolveEngineRules(ruleRows ?? []);
 
-  // Ausencias que bloquean guardia (según el tipo de día).
+  // Ausencias: bloqueantes (no asignable) y de baja (asignable, necesita sustituto).
   const allowsGuard = new Map((dayTypeRows ?? []).map((t) => [t.id, t.allows_guard]));
+  const needsSub = new Map((dayTypeRows ?? []).map((t) => [t.id, t.needs_substitute]));
   const blockedGuardDates = new Map<string, Set<string>>();
-  for (const a of absenceRows ?? []) {
-    if (allowsGuard.get(a.day_type_id)) continue; // ese tipo permite guardia
-    const from = a.start_date < periodStart ? periodStart : a.start_date;
-    const to = a.end_date > periodEnd ? periodEnd : a.end_date;
-    let set = blockedGuardDates.get(a.doctor_id);
+  const substituteNeeded = new Map<string, Set<string>>();
+  const addTo = (map: Map<string, Set<string>>, doctorId: string, from: string, to: string) => {
+    let set = map.get(doctorId);
     if (!set) {
       set = new Set();
-      blockedGuardDates.set(a.doctor_id, set);
+      map.set(doctorId, set);
     }
     for (const date of eachDateInclusive(from, to)) set.add(date);
+  };
+  for (const a of absenceRows ?? []) {
+    const from = a.start_date < periodStart ? periodStart : a.start_date;
+    const to = a.end_date > periodEnd ? periodEnd : a.end_date;
+    if (needsSub.get(a.day_type_id)) {
+      addTo(substituteNeeded, a.doctor_id, from, to); // baja: asignable + sustituto
+    } else if (!allowsGuard.get(a.day_type_id)) {
+      addTo(blockedGuardDates, a.doctor_id, from, to); // no asignable
+    }
   }
 
   const holidays = new Set((holidayRows ?? []).map((h) => h.date));
@@ -126,13 +136,32 @@ export async function generateCycle(formData: FormData) {
     history,
   });
 
+  // Sustitutos para las guardias cuyo titular está de baja.
+  const open: OpenAssignment[] = result.assignments.map((a, i) => ({
+    id: String(i),
+    date: a.date,
+    category: a.category,
+    modality: a.modality,
+    eligible: a.eligible,
+    doctorId: a.doctorId,
+  }));
+  const subs = assignSubstitutes({
+    assignments: open,
+    doctors,
+    rules,
+    blockedGuardDates,
+    substituteNeeded,
+  });
+  const subById = new Map(subs.map((s) => [s.id, s.substituteId]));
+
   // Guardar ciclo + asignaciones de forma ATÓMICA (una sola transacción).
-  const payload = result.assignments.map((a) => ({
+  const payload = result.assignments.map((a, i) => ({
     date: a.date,
     category: a.category,
     modality: a.modality,
     eligible: a.eligible,
     doctor_id: a.doctorId,
+    substitute_doctor_id: subById.get(String(i)) ?? null,
   }));
 
   const { data: cycleId, error } = await supabase.rpc(
