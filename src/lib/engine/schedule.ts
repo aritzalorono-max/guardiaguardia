@@ -476,8 +476,6 @@ function balanceLanes(
 
 // ============================================================
 // Rellenar SOLO los huecos de un reparto existente (Fase 8).
-// Mantiene fijas las guardias ya asignadas y cubre las vacías
-// respetando reglas, equidad y disponibilidad.
 // ============================================================
 
 export interface OpenAssignment {
@@ -643,4 +641,180 @@ export function fillOpenSlots(params: {
   }
 
   return { filled, remainingGaps };
+}
+
+// ============================================================
+// Verificación (doble check) de un reparto ya existente.
+// Detecta huecos, incumplimientos de reglas, médicos no disponibles,
+// elegibilidad incorrecta y desequilibrios.
+// ============================================================
+
+export interface ValidationIssue {
+  severity: "error" | "warning";
+  code: string;
+  message: string;
+  date?: string;
+  doctorId?: string;
+}
+
+export interface ValidationResult {
+  issues: ValidationIssue[];
+  errorCount: number;
+  warningCount: number;
+  ok: boolean;
+}
+
+const MODALITY_ES: Record<Modality, string> = {
+  presencial: "presencial",
+  localizada: "localizada",
+  telefonica: "telefónica",
+};
+
+export function validateSchedule(params: {
+  assignments: OpenAssignment[];
+  doctors: EngineDoctor[];
+  rules: EngineRules;
+  blockedGuardDates: Map<string, Set<string>>;
+}): ValidationResult {
+  const { rules } = params;
+  const issues: ValidationIssue[] = [];
+  const docById = new Map(params.doctors.map((d) => [d.id, d]));
+
+  const baseGap = rules.noConsecutive || rules.freeDayAfter || rules.rest12h ? 2 : 1;
+  const gapDiff = Math.max(baseGap, rules.minDaysBetween ?? 1);
+
+  // 1) Cobertura: huecos sin personal.
+  for (const a of params.assignments) {
+    if (!a.doctorId) {
+      issues.push({
+        severity: "error",
+        code: "hueco",
+        message: `${a.date}: puesto ${MODALITY_ES[a.modality]} sin personal de guardia.`,
+        date: a.date,
+      });
+    }
+  }
+
+  // 2) Por asignación cubierta: elegibilidad, disponibilidad, médico válido.
+  for (const a of params.assignments) {
+    if (!a.doctorId) continue;
+    const doc = docById.get(a.doctorId);
+    if (!doc) continue;
+
+    if (!doc.doesGuards || !doc.isActive) {
+      issues.push({
+        severity: "error",
+        code: "medico_invalido",
+        message: `${a.date}: asignado a un médico que no está activo o no hace guardias.`,
+        date: a.date,
+        doctorId: a.doctorId,
+      });
+    }
+    if (!canCover(doc, a.modality, a.eligible, rules)) {
+      issues.push({
+        severity: "error",
+        code: "elegibilidad",
+        message: `${a.date}: el médico no cumple la elegibilidad del puesto (${MODALITY_ES[a.modality]}${
+          a.eligible !== "cualquiera" ? `, solo ${a.eligible}s` : ""
+        }).`,
+        date: a.date,
+        doctorId: a.doctorId,
+      });
+    }
+    if (params.blockedGuardDates.get(a.doctorId)?.has(a.date)) {
+      issues.push({
+        severity: "error",
+        code: "no_disponible",
+        message: `${a.date}: el médico está de ausencia/baja y no puede hacer guardia ese día.`,
+        date: a.date,
+        doctorId: a.doctorId,
+      });
+    }
+  }
+
+  // 3) Por médico: descanso, dos findes seguidos, tope mensual.
+  const perDoctor = new Map<string, OpenAssignment[]>();
+  for (const a of params.assignments) {
+    if (!a.doctorId) continue;
+    (perDoctor.get(a.doctorId) ?? perDoctor.set(a.doctorId, []).get(a.doctorId)!).push(a);
+  }
+
+  for (const [docId, list] of perDoctor) {
+    const doc = docById.get(docId);
+    const infos = list
+      .map((a) => ({ ...infoFromDate(a.date), date: a.date }))
+      .sort((x, y) => x.epoch - y.epoch);
+
+    // Descanso / separación mínima (vecinos en orden).
+    for (let i = 1; i < infos.length; i++) {
+      const diff = infos[i].epoch - infos[i - 1].epoch;
+      if (diff < gapDiff) {
+        issues.push({
+          severity: "error",
+          code: "descanso",
+          message: `${infos[i].date}: guardia demasiado cerca de la del ${infos[i - 1].date} (no se respeta el descanso).`,
+          date: infos[i].date,
+          doctorId: docId,
+        });
+      }
+    }
+
+    // No dos fines de semana seguidos.
+    if (rules.noTwoWeekends) {
+      const weekendIds = infos
+        .map((x) => x.weekendId)
+        .filter((w): w is number => w != null)
+        .sort((a, b) => a - b);
+      for (let i = 1; i < weekendIds.length; i++) {
+        if (weekendIds[i] - weekendIds[i - 1] === 7) {
+          issues.push({
+            severity: "error",
+            code: "findes",
+            message: `${docId ? "" : ""}Dos fines de semana de guardia seguidos.`,
+            doctorId: docId,
+          });
+          break;
+        }
+      }
+    }
+
+    // Tope mensual.
+    const cap = doc?.kind === "residente" ? rules.maxPerMonthResident : rules.maxPerMonthAdjunto;
+    if (cap != null) {
+      const perMonth = new Map<string, number>();
+      for (const x of infos) perMonth.set(x.monthKey, (perMonth.get(x.monthKey) ?? 0) + 1);
+      for (const [month, n] of perMonth) {
+        if (n > cap) {
+          issues.push({
+            severity: "error",
+            code: "tope",
+            message: `Supera el tope mensual en ${month}: ${n} guardias (máximo ${cap}).`,
+            doctorId: docId,
+          });
+        }
+      }
+    }
+  }
+
+  // 4) Equidad (aviso): diferencia > 1 por categoría entre quienes hacen guardias.
+  const eligibleIds = params.doctors.filter((d) => d.doesGuards && d.isActive).map((d) => d.id);
+  for (const cat of ["laborable", "vispera", "festivo"] as DayCategory[]) {
+    const counts = eligibleIds.map(
+      (id) => params.assignments.filter((a) => a.doctorId === id && a.category === cat).length,
+    );
+    if (counts.length > 1) {
+      const spread = Math.max(...counts) - Math.min(...counts);
+      if (spread > 1) {
+        issues.push({
+          severity: "warning",
+          code: "equidad",
+          message: `Reparto poco equilibrado en ${cat}: diferencia de ${spread} guardias entre médicos.`,
+        });
+      }
+    }
+  }
+
+  const errorCount = issues.filter((i) => i.severity === "error").length;
+  const warningCount = issues.length - errorCount;
+  return { issues, errorCount, warningCount, ok: errorCount === 0 };
 }

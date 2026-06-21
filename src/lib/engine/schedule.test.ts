@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   generateSchedule,
   fillOpenSlots,
+  validateSchedule,
   DEFAULT_RULES,
   type EngineDoctor,
   type EngineInput,
@@ -274,5 +275,75 @@ describe("optimización por intercambios (Fase C)", () => {
     );
     const counts = doctors.map((d) => result.perDoctor[d.id].byCategory.festivo);
     expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("validateSchedule (doble check)", () => {
+  const A = (date: string, doctorId: string | null, over: Partial<OpenAssignment> = {}): OpenAssignment => ({
+    id: date + (doctorId ?? "x"),
+    date,
+    category: "laborable",
+    modality: "presencial",
+    eligible: "cualquiera",
+    doctorId,
+    ...over,
+  });
+
+  it("un reparto correcto no tiene errores", () => {
+    const doctors = [adj("a"), adj("b")];
+    const assignments = [A("2026-03-02", "a"), A("2026-03-05", "b")];
+    const res = validateSchedule({
+      assignments,
+      doctors,
+      rules: { ...DEFAULT_RULES },
+      blockedGuardDates: new Map(),
+    });
+    expect(res.ok).toBe(true);
+    expect(res.errorCount).toBe(0);
+  });
+
+  it("detecta huecos sin personal", () => {
+    const doctors = [adj("a")];
+    const res = validateSchedule({
+      assignments: [A("2026-03-02", null)],
+      doctors,
+      rules: { ...DEFAULT_RULES },
+      blockedGuardDates: new Map(),
+    });
+    expect(res.ok).toBe(false);
+    expect(res.issues.some((i) => i.code === "hueco")).toBe(true);
+  });
+
+  it("detecta guardias sin descanso (consecutivas)", () => {
+    const doctors = [adj("a")];
+    const res = validateSchedule({
+      assignments: [A("2026-03-02", "a"), A("2026-03-03", "a")],
+      doctors,
+      rules: { ...DEFAULT_RULES },
+      blockedGuardDates: new Map(),
+    });
+    expect(res.issues.some((i) => i.code === "descanso")).toBe(true);
+  });
+
+  it("detecta médico asignado en día no disponible", () => {
+    const doctors = [adj("a")];
+    const res = validateSchedule({
+      assignments: [A("2026-03-02", "a")],
+      doctors,
+      rules: { ...DEFAULT_RULES },
+      blockedGuardDates: new Map([["a", new Set(["2026-03-02"])]]),
+    });
+    expect(res.issues.some((i) => i.code === "no_disponible")).toBe(true);
+  });
+
+  it("detecta elegibilidad incorrecta", () => {
+    const doctors = [adj("a")];
+    const res = validateSchedule({
+      assignments: [A("2026-03-02", "a", { eligible: "residente" })],
+      doctors,
+      rules: { ...DEFAULT_RULES },
+      blockedGuardDates: new Map(),
+    });
+    expect(res.issues.some((i) => i.code === "elegibilidad")).toBe(true);
   });
 });

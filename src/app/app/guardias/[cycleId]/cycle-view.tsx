@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/components/ui/toast";
 import {
   fillOpenSlots,
+  validateSchedule,
   type EngineRules,
   type EngineDoctor,
   type OpenAssignment,
@@ -197,6 +198,31 @@ export function CycleView({
     }
     return m;
   }, [assignments]);
+
+  // Verificación (doble check) del reparto, en vivo.
+  const validation = useMemo(() => {
+    const engineDoctors: EngineDoctor[] = doctors.map((d) => ({
+      id: d.id,
+      kind: d.kind,
+      doesGuards: d.does_guards,
+      isActive: d.is_active,
+      partTime: false,
+    }));
+    const open: OpenAssignment[] = assignments.map((a) => ({
+      id: a.id,
+      date: a.date,
+      category: a.category,
+      modality: a.modality,
+      eligible: a.eligible,
+      doctorId: a.doctor_id,
+    }));
+    return validateSchedule({
+      assignments: open,
+      doctors: engineDoctors,
+      rules,
+      blockedGuardDates: effectiveBlocked,
+    });
+  }, [assignments, doctors, rules, effectiveBlocked]);
 
   // Avisos para asignar un médico a la guardia en edición
   function warningsFor(doctorId: string): string[] {
@@ -432,6 +458,66 @@ export function CycleView({
         >
           {status === "published" ? "Pasar a borrador" : "Publicar"}
         </button>
+      </div>
+
+      {/* Verificación (doble check) */}
+      <div className="mt-6">
+        {validation.ok && validation.warningCount === 0 ? (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+            ✓ Reparto verificado: sin huecos ni incumplimientos de reglas.
+          </div>
+        ) : (
+          <div className="rounded-xl border border-slate-200 bg-white p-5">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-slate-900">
+                Verificación del reparto
+              </h2>
+              <div className="flex gap-2 text-xs font-medium">
+                <span
+                  className={`rounded-full px-2.5 py-1 ${
+                    validation.errorCount
+                      ? "bg-red-100 text-red-700"
+                      : "bg-emerald-100 text-emerald-700"
+                  }`}
+                >
+                  {validation.errorCount}{" "}
+                  {validation.errorCount === 1 ? "error" : "errores"}
+                </span>
+                {validation.warningCount > 0 && (
+                  <span className="rounded-full bg-amber-100 px-2.5 py-1 text-amber-700">
+                    {validation.warningCount}{" "}
+                    {validation.warningCount === 1 ? "aviso" : "avisos"}
+                  </span>
+                )}
+              </div>
+            </div>
+            <ul className="mt-3 space-y-1 text-sm">
+              {validation.issues.slice(0, 20).map((iss, i) => (
+                <li
+                  key={i}
+                  className={`flex gap-2 rounded-lg px-3 py-2 ${
+                    iss.severity === "error"
+                      ? "bg-red-50 text-red-700"
+                      : "bg-amber-50 text-amber-700"
+                  }`}
+                >
+                  <span>{iss.severity === "error" ? "⛔" : "⚠️"}</span>
+                  <span>
+                    {iss.message}
+                    {iss.doctorId && docName.get(iss.doctorId)
+                      ? ` — ${docName.get(iss.doctorId)}`
+                      : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {validation.issues.length > 20 && (
+              <p className="mt-2 text-xs text-slate-400">
+                y {validation.issues.length - 20} más…
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Bajas a mitad de ciclo */}
