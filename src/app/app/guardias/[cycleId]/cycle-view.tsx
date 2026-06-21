@@ -6,6 +6,7 @@ import { toast } from "@/components/ui/toast";
 import {
   fillOpenSlots,
   validateSchedule,
+  autoFixSchedule,
   type EngineRules,
   type EngineDoctor,
   type OpenAssignment,
@@ -435,6 +436,80 @@ export function CycleView({
     }
   }
 
+  // Autocorrección: libera lo problemático y reasigna respetando las reglas.
+  async function autoFix() {
+    setBusy(true);
+    try {
+      const engineDoctors: EngineDoctor[] = doctors.map((d) => ({
+        id: d.id,
+        kind: d.kind,
+        doesGuards: d.does_guards,
+        isActive: d.is_active,
+        partTime: false,
+      }));
+      const open: OpenAssignment[] = assignments.map((a) => ({
+        id: a.id,
+        date: a.date,
+        category: a.category,
+        modality: a.modality,
+        eligible: a.eligible,
+        doctorId: a.doctor_id,
+      }));
+      const { changes, remainingErrors } = autoFixSchedule({
+        assignments: open,
+        doctors: engineDoctors,
+        rules,
+        blockedGuardDates: effectiveBlocked,
+      });
+      if (changes.length === 0) {
+        toast.error("No hay nada que corregir automáticamente.");
+        return;
+      }
+
+      for (const c of changes) {
+        await supabase
+          .from("guard_assignments")
+          .update({ doctor_id: c.doctorId, manual: true })
+          .eq("id", c.id);
+      }
+      const rows = changes.map((c) => {
+        const a = assignments.find((x) => x.id === c.id)!;
+        return {
+          service_id: serviceId,
+          cycle_id: cycle.id,
+          assignment_id: c.id,
+          date: a.date,
+          actor_email: `${actorEmail} (auto-corrección)`,
+          old_doctor_id: a.doctor_id,
+          new_doctor_id: c.doctorId,
+        };
+      });
+      const { data: inserted } = await supabase
+        .from("assignment_audit")
+        .insert(rows)
+        .select("id, date, actor_email, old_doctor_id, new_doctor_id, created_at");
+      if (inserted) setAudit((a) => [...inserted, ...a]);
+
+      const map = new Map(changes.map((c) => [c.id, c.doctorId]));
+      setAssignments((arr) =>
+        arr.map((a) =>
+          map.has(a.id) ? { ...a, doctor_id: map.get(a.id) ?? null, manual: true } : a,
+        ),
+      );
+
+      if (remainingErrors === 0)
+        toast.success(`Corregido: ${changes.length} cambio(s).`);
+      else
+        toast.success(
+          `Corregidos ${changes.length} puesto(s). Quedan ${remainingErrors} sin solución automática.`,
+        );
+    } catch {
+      toast.error("No se pudo corregir automáticamente. Reintenta.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const monthsList = Array.from({ length: cycle.months }, (_, i) => {
     const d = new Date(Date.UTC(cycle.start_year, cycle.start_month + i, 1));
     return { year: d.getUTCFullYear(), month: d.getUTCMonth() };
@@ -515,6 +590,15 @@ export function CycleView({
               <p className="mt-2 text-xs text-slate-400">
                 y {validation.issues.length - 20} más…
               </p>
+            )}
+            {validation.errorCount > 0 && (
+              <button
+                onClick={autoFix}
+                disabled={busy}
+                className="mt-4 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+              >
+                {busy ? "Corrigiendo…" : "Corregir automáticamente"}
+              </button>
             )}
           </div>
         )}

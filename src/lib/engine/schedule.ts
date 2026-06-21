@@ -818,3 +818,125 @@ export function validateSchedule(params: {
   const warningCount = issues.length - errorCount;
   return { issues, errorCount, warningCount, ok: errorCount === 0 };
 }
+
+// ============================================================
+// Autocorrección: libera las guardias problemáticas y las vuelve a
+// asignar respetando todas las reglas. Devuelve los cambios a aplicar.
+// ============================================================
+
+export interface AutoFixResult {
+  changes: { id: string; doctorId: string | null }[];
+  releasedCount: number;
+  refilledCount: number;
+  remainingErrors: number;
+}
+
+export function autoFixSchedule(params: {
+  assignments: OpenAssignment[];
+  doctors: EngineDoctor[];
+  rules: EngineRules;
+  blockedGuardDates: Map<string, Set<string>>;
+  history?: Map<string, Partial<Record<DayCategory, number>>>;
+}): AutoFixResult {
+  const { rules } = params;
+  const docById = new Map(params.doctors.map((d) => [d.id, d]));
+  const baseGap = rules.noConsecutive || rules.freeDayAfter || rules.rest12h ? 2 : 1;
+  const gapDiff = Math.max(baseGap, rules.minDaysBetween ?? 1);
+
+  const work: OpenAssignment[] = params.assignments.map((a) => ({ ...a }));
+  const original = new Map(params.assignments.map((a) => [a.id, a.doctorId]));
+
+  // a) Liberar asignaciones inválidas por sí mismas.
+  for (const a of work) {
+    if (!a.doctorId) continue;
+    const doc = docById.get(a.doctorId);
+    if (!doc || !doc.doesGuards || !doc.isActive) {
+      a.doctorId = null;
+      continue;
+    }
+    if (!canCover(doc, a.modality, a.eligible, rules)) {
+      a.doctorId = null;
+      continue;
+    }
+    if (params.blockedGuardDates.get(a.doctorId)?.has(a.date)) {
+      a.doctorId = null;
+    }
+  }
+
+  // b) Resolver conflictos por médico (descanso, findes, tope): se conserva la
+  //    guardia más temprana y se liberan las que entran en conflicto.
+  const byDoc = new Map<string, OpenAssignment[]>();
+  for (const a of work) {
+    if (!a.doctorId) continue;
+    (byDoc.get(a.doctorId) ?? byDoc.set(a.doctorId, []).get(a.doctorId)!).push(a);
+  }
+  for (const [docId, list] of byDoc) {
+    const doc = docById.get(docId)!;
+    const sorted = list
+      .map((a) => ({ a, ...infoFromDate(a.date) }))
+      .sort((x, y) => x.epoch - y.epoch);
+
+    // descanso / separación
+    let lastKept = -Infinity;
+    for (const it of sorted) {
+      if (it.a.doctorId == null) continue;
+      if (it.epoch - lastKept < gapDiff) it.a.doctorId = null;
+      else lastKept = it.epoch;
+    }
+    // dos findes seguidos
+    if (rules.noTwoWeekends) {
+      let lastWk = -Infinity;
+      for (const it of sorted) {
+        if (it.a.doctorId == null || it.weekendId == null) continue;
+        if (it.weekendId - lastWk === 7) it.a.doctorId = null;
+        else lastWk = it.weekendId;
+      }
+    }
+    // tope mensual
+    const cap = doc.kind === "residente" ? rules.maxPerMonthResident : rules.maxPerMonthAdjunto;
+    if (cap != null) {
+      const perMonth = new Map<string, number>();
+      for (const it of sorted) {
+        if (it.a.doctorId == null) continue;
+        const n = (perMonth.get(it.monthKey) ?? 0) + 1;
+        if (n > cap) it.a.doctorId = null;
+        else perMonth.set(it.monthKey, n);
+      }
+    }
+  }
+
+  // c) Rellenar de nuevo los huecos resultantes de forma válida.
+  const fill = fillOpenSlots({
+    assignments: work,
+    doctors: params.doctors,
+    rules,
+    blockedGuardDates: params.blockedGuardDates,
+    history: params.history,
+  });
+  for (const f of fill.filled) {
+    const a = work.find((x) => x.id === f.id);
+    if (a) a.doctorId = f.doctorId;
+  }
+
+  // d) Calcular cambios respecto al original.
+  const changes: { id: string; doctorId: string | null }[] = [];
+  let releasedCount = 0;
+  let refilledCount = 0;
+  for (const a of work) {
+    const orig = original.get(a.id) ?? null;
+    if (a.doctorId !== orig) {
+      changes.push({ id: a.id, doctorId: a.doctorId });
+      if (orig && !a.doctorId) releasedCount++;
+      if (a.doctorId) refilledCount++;
+    }
+  }
+
+  const remainingErrors = validateSchedule({
+    assignments: work,
+    doctors: params.doctors,
+    rules,
+    blockedGuardDates: params.blockedGuardDates,
+  }).errorCount;
+
+  return { changes, releasedCount, refilledCount, remainingErrors };
+}

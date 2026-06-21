@@ -3,6 +3,7 @@ import {
   generateSchedule,
   fillOpenSlots,
   validateSchedule,
+  autoFixSchedule,
   DEFAULT_RULES,
   type EngineDoctor,
   type EngineInput,
@@ -345,5 +346,50 @@ describe("validateSchedule (doble check)", () => {
       blockedGuardDates: new Map(),
     });
     expect(res.issues.some((i) => i.code === "elegibilidad")).toBe(true);
+  });
+});
+
+describe("autoFixSchedule (autocorrección)", () => {
+  const A = (id: string, date: string, doctorId: string | null, over: Partial<OpenAssignment> = {}): OpenAssignment => ({
+    id, date, category: "laborable", modality: "presencial", eligible: "cualquiera", doctorId, ...over,
+  });
+
+  function validate(assignments: OpenAssignment[], doctors: EngineDoctor[], blocked = new Map<string, Set<string>>()) {
+    return validateSchedule({ assignments, doctors, rules: { ...DEFAULT_RULES }, blockedGuardDates: blocked });
+  }
+
+  it("corrige un médico asignado en día no disponible", () => {
+    const doctors = [adj("a"), adj("b")];
+    const assignments = [A("s1", "2026-03-02", "a")];
+    const blocked = new Map([["a", new Set(["2026-03-02"])]]);
+
+    const fix = autoFixSchedule({ assignments, doctors, rules: { ...DEFAULT_RULES }, blockedGuardDates: blocked });
+    // aplica los cambios
+    for (const c of fix.changes) assignments.find((x) => x.id === c.id)!.doctorId = c.doctorId;
+
+    expect(fix.remainingErrors).toBe(0);
+    expect(assignments[0].doctorId).toBe("b"); // reasignado a quien sí puede
+  });
+
+  it("corrige guardias consecutivas reasignando una", () => {
+    const doctors = [adj("a"), adj("b")];
+    const assignments = [A("s1", "2026-03-02", "a"), A("s2", "2026-03-03", "a")];
+
+    const fix = autoFixSchedule({ assignments, doctors, rules: { ...DEFAULT_RULES }, blockedGuardDates: new Map() });
+    for (const c of fix.changes) assignments.find((x) => x.id === c.id)!.doctorId = c.doctorId;
+
+    expect(fix.remainingErrors).toBe(0);
+    expect(validate(assignments, doctors).errorCount).toBe(0);
+  });
+
+  it("rellena huecos al autocorregir", () => {
+    const doctors = [adj("a"), adj("b")];
+    const assignments = [A("s1", "2026-03-02", null), A("s2", "2026-03-06", "a")];
+
+    const fix = autoFixSchedule({ assignments, doctors, rules: { ...DEFAULT_RULES }, blockedGuardDates: new Map() });
+    for (const c of fix.changes) assignments.find((x) => x.id === c.id)!.doctorId = c.doctorId;
+
+    expect(assignments[0].doctorId).not.toBeNull();
+    expect(fix.remainingErrors).toBe(0);
   });
 });
