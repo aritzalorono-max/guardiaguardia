@@ -39,9 +39,12 @@ export default async function AppLayout({
             GuardiaGuardia
           </Link>
           <div className="flex items-center gap-4 text-sm">
-            <span className="hidden text-slate-500 sm:inline">
+            <Link
+              href="/app/cuenta"
+              className="hidden text-slate-500 hover:text-teal-700 hover:underline sm:inline"
+            >
               {user.email}
-            </span>
+            </Link>
             <form action={signOut}>
               <button
                 type="submit"

@@ -14,6 +14,7 @@ const LINKS: {
   { href: "/app/calendario", label: "Calendario" },
   { href: "/app/configuracion", label: "Configuración" },
   { href: "/app/guardias", label: "Guardias" },
+  { href: "/app/cuenta", label: "Cuenta" },
 ];
 
 export function AppNav() {

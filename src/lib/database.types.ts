@@ -465,6 +465,10 @@ export type Database = {
         }
         Returns: string
       }
+      delete_my_account: { Args: Record<string, never>; Returns: undefined }
+      list_service_members: { Args: Record<string, never>; Returns: Json }
+      remove_member: { Args: { p_user_id: string }; Returns: undefined }
+      share_service: { Args: { p_email: string }; Returns: string }
       is_member_of: { Args: { p_service_id: string }; Returns: boolean }
       get_shared_cycle: { Args: { p_token: string }; Returns: Json }
     }
