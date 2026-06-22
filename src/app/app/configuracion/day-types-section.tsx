@@ -106,22 +106,15 @@ export function DayTypesSection({
                   />
                 </td>
                 <td className="px-4 py-3 font-medium text-slate-900">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      defaultValue={t.name}
-                      onBlur={(e) =>
-                        e.target.value.trim() &&
-                        patchType(t.id, { name: e.target.value.trim() })
-                      }
-                      className="rounded-md border border-slate-300 px-2 py-1"
-                    />
-                    {t.is_system && (
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">
-                        base
-                      </span>
-                    )}
-                  </div>
+                  <input
+                    type="text"
+                    defaultValue={t.name}
+                    onBlur={(e) =>
+                      e.target.value.trim() &&
+                      patchType(t.id, { name: e.target.value.trim() })
+                    }
+                    className="rounded-md border border-slate-300 px-2 py-1"
+                  />
                 </td>
                 <td className="px-4 py-3">
                   <Switch
