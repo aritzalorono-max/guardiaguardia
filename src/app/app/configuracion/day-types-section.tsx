@@ -78,8 +78,8 @@ export function DayTypesSection({
         Cada tipo define si el día <strong>cuenta como trabajado</strong> (para el
         reparto proporcional), si <strong>permite hacer guardia</strong> y si{" "}
         <strong>necesita sustituto</strong> (como una baja: se le asigna la
-        guardia pero la cubre otra persona). Los cuatro tipos base no se pueden
-        borrar.
+        guardia pero la cubre otra persona). Puedes editar o eliminar cualquier
+        tipo, incluidos los que vienen de serie.
       </p>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -106,14 +106,7 @@ export function DayTypesSection({
                   />
                 </td>
                 <td className="px-4 py-3 font-medium text-slate-900">
-                  {t.is_system ? (
-                    <span className="flex items-center gap-2">
-                      {t.name}
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">
-                        base
-                      </span>
-                    </span>
-                  ) : (
+                  <div className="flex items-center gap-2">
                     <input
                       type="text"
                       defaultValue={t.name}
@@ -123,38 +116,44 @@ export function DayTypesSection({
                       }
                       className="rounded-md border border-slate-300 px-2 py-1"
                     />
-                  )}
+                    {t.is_system && (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">
+                        base
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-3">
                   <Switch
                     checked={t.counts_as_worked}
-                    disabled={t.is_system}
                     onChange={(v) => patchType(t.id, { counts_as_worked: v })}
                   />
                 </td>
                 <td className="px-4 py-3">
                   <Switch
                     checked={t.allows_guard}
-                    disabled={t.is_system}
-                    onChange={(v) => patchType(t.id, { allows_guard: v })}
+                    onChange={(v) =>
+                      patchType(
+                        t.id,
+                        v ? { allows_guard: true } : { allows_guard: false, needs_substitute: false },
+                      )
+                    }
                   />
                 </td>
                 <td className="px-4 py-3">
                   <Switch
                     checked={t.needs_substitute}
-                    disabled={t.is_system || !t.allows_guard}
+                    disabled={!t.allows_guard}
                     onChange={(v) => patchType(t.id, { needs_substitute: v })}
                   />
                 </td>
                 <td className="px-4 py-3 text-right">
-                  {!t.is_system && (
-                    <button
-                      onClick={() => removeType(t)}
-                      className="rounded-md px-2 py-1 text-sm font-medium text-red-600 hover:bg-red-50"
-                    >
-                      Eliminar
-                    </button>
-                  )}
+                  <button
+                    onClick={() => removeType(t)}
+                    className="rounded-md px-2 py-1 text-sm font-medium text-red-600 hover:bg-red-50"
+                  >
+                    Eliminar
+                  </button>
                 </td>
               </tr>
             ))}
