@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "@/components/ui/toast";
 import type { Tables } from "@/lib/database.types";
 import { RULE_GROUPS, ALL_RULES } from "@/lib/rules";
 import { Toggle } from "@/components/ui/form";
@@ -17,6 +18,7 @@ export function RulesSection({
   initialRules: RuleRow[];
 }) {
   const supabase = useMemo(() => createClient(), []);
+  const [saved, setSaved] = useState(false);
 
   const [state, setState] = useState<State>(() => {
     const stored = new Map(initialRules.map((r) => [r.rule_key, r]));
@@ -38,7 +40,7 @@ export function RulesSection({
     next: { enabled: boolean; value: number | null },
   ) {
     setState((s) => ({ ...s, [key]: next }));
-    await supabase.from("service_rules").upsert(
+    const { error } = await supabase.from("service_rules").upsert(
       {
         service_id: serviceId,
         rule_key: key,
@@ -47,10 +49,25 @@ export function RulesSection({
       },
       { onConflict: "service_id,rule_key" },
     );
+    if (error) {
+      toast.error("No se pudo guardar la regla. Reintenta.");
+      return;
+    }
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1800);
   }
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+            saved ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-400"
+          }`}
+        >
+          {saved ? "Guardado ✓" : "Se guarda solo"}
+        </span>
+      </div>
       {RULE_GROUPS.map((group) => (
         <div
           key={group.id}

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "@/components/ui/toast";
 import type { Tables } from "@/lib/database.types";
 import { Field, Toggle, Alert } from "@/components/ui/form";
 
@@ -17,6 +18,12 @@ export function DayTypesSection({
   const supabase = useMemo(() => createClient(), []);
   const [types, setTypes] = useState<DayType[]>(initialDayTypes);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  function markSaved() {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1800);
+  }
 
   // Alta
   const [name, setName] = useState("");
@@ -27,7 +34,9 @@ export function DayTypesSection({
 
   async function patchType(id: string, patch: Partial<DayType>) {
     setTypes((t) => t.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-    await supabase.from("day_types").update(patch).eq("id", id);
+    const { error } = await supabase.from("day_types").update(patch).eq("id", id);
+    if (error) toast.error("No se pudo guardar el cambio. Reintenta.");
+    else markSaved();
   }
 
   async function addType(e: React.FormEvent) {
@@ -37,7 +46,7 @@ export function DayTypesSection({
       setError("Indica un nombre para el tipo de día.");
       return;
     }
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("day_types")
       .insert({
         service_id: serviceId,
@@ -50,37 +59,50 @@ export function DayTypesSection({
       })
       .select("*")
       .single();
-    if (data) {
-      setTypes((t) => [...t, data]);
-      setName("");
-      setColor("#0ea5e9");
-      setWorked(false);
-      setGuard(false);
-      setSub(false);
+    if (error || !data) {
+      toast.error("No se pudo añadir el tipo. Reintenta.");
+      return;
     }
+    setTypes((t) => [...t, data]);
+    setName("");
+    setColor("#0ea5e9");
+    setWorked(false);
+    setGuard(false);
+    setSub(false);
+    markSaved();
   }
 
   async function removeType(t: DayType) {
     if (!confirm(`¿Eliminar el tipo "${t.name}"?`)) return;
     const { error } = await supabase.from("day_types").delete().eq("id", t.id);
     if (error) {
-      alert(
+      toast.error(
         "No se puede eliminar: hay ausencias marcadas con este tipo. Cámbialas primero en el calendario.",
       );
       return;
     }
     setTypes((arr) => arr.filter((x) => x.id !== t.id));
+    markSaved();
   }
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-slate-600">
-        Cada tipo define si el día <strong>cuenta como trabajado</strong> (para el
-        reparto proporcional), si <strong>permite hacer guardia</strong> y si{" "}
-        <strong>necesita sustituto</strong> (como una baja: se le asigna la
-        guardia pero la cubre otra persona). Puedes editar o eliminar cualquier
-        tipo, incluidos los que vienen de serie.
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm text-slate-600">
+          Cada tipo define si el día <strong>cuenta como trabajado</strong> (para
+          el reparto proporcional), si <strong>permite hacer guardia</strong> y si{" "}
+          <strong>necesita sustituto</strong> (como una baja: se le asigna la
+          guardia pero la cubre otra persona). Puedes editar o eliminar cualquier
+          tipo, incluidos los que vienen de serie.
+        </p>
+        <span
+          className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${
+            saved ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-400"
+          }`}
+        >
+          {saved ? "Guardado ✓" : "Se guarda solo"}
+        </span>
+      </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         <table className="w-full text-left text-sm">

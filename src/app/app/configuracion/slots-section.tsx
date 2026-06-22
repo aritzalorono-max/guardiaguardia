@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "@/components/ui/toast";
 import type { Tables, Enums } from "@/lib/database.types";
 
 type Slot = Tables<"guard_slots">;
@@ -51,6 +52,7 @@ export function SlotsSection({
   initialSlots: Slot[];
 }) {
   const [slots, setSlots] = useState<Slot[]>(initialSlots);
+  const [saved, setSaved] = useState(false);
   const supabase = useMemo(() => createClient(), []);
 
   const byCategory = (c: Category) =>
@@ -58,9 +60,14 @@ export function SlotsSection({
       .filter((s) => s.day_category === c)
       .sort((a, b) => a.position - b.position);
 
+  function markSaved() {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1800);
+  }
+
   async function addSlot(category: Category, defaultWeight: number) {
     const position = byCategory(category).length;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("guard_slots")
       .insert({
         service_id: serviceId,
@@ -72,28 +79,48 @@ export function SlotsSection({
       })
       .select("*")
       .single();
-    if (data) setSlots((s) => [...s, data]);
+    if (error || !data) {
+      toast.error("No se pudo guardar el puesto. Reintenta.");
+      return;
+    }
+    setSlots((s) => [...s, data]);
+    markSaved();
   }
 
   async function patchSlot(id: string, patch: Partial<Slot>) {
     setSlots((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-    await supabase.from("guard_slots").update(patch).eq("id", id);
+    const { error } = await supabase.from("guard_slots").update(patch).eq("id", id);
+    if (error) toast.error("No se pudo guardar el cambio. Reintenta.");
+    else markSaved();
   }
 
   async function removeSlot(id: string) {
     setSlots((s) => s.filter((x) => x.id !== id));
-    await supabase.from("guard_slots").delete().eq("id", id);
+    const { error } = await supabase.from("guard_slots").delete().eq("id", id);
+    if (error) toast.error("No se pudo eliminar. Reintenta.");
+    else markSaved();
   }
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-slate-600">
-        Indica qué puestos hay que cubrir cada día según su tipo. El número de
-        personas por día es el número de puestos que añadas. El{" "}
-        <strong>peso</strong> se usa para afinar la equidad (un festivo pesa más
-        que un laborable); de base el reparto iguala el número de guardias de
-        cada tipo.
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm text-slate-600">
+          Indica qué puestos hay que cubrir cada día según su tipo. El número de
+          personas por día es el número de puestos que añadas. El{" "}
+          <strong>peso</strong> se usa para afinar la equidad (un festivo pesa
+          más que un laborable); de base el reparto iguala el número de guardias
+          de cada tipo.
+        </p>
+        <span
+          className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${
+            saved
+              ? "bg-emerald-50 text-emerald-700"
+              : "bg-slate-100 text-slate-400"
+          }`}
+        >
+          {saved ? "Guardado ✓" : "Se guarda solo"}
+        </span>
+      </div>
 
       {CATEGORIES.map((cat) => {
         const items = byCategory(cat.id);
