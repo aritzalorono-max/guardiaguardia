@@ -169,7 +169,7 @@ export function DoctorsManager({
               <tr>
                 <th className="px-4 py-3 font-medium">Nombre</th>
                 <th className="px-4 py-3 font-medium">Tipo</th>
-                <th className="px-4 py-3 font-medium">Trabaja</th>
+                <th className="px-4 py-3 font-medium">En reparto</th>
                 <th className="px-4 py-3 font-medium">Guardias</th>
                 <th className="px-4 py-3" />
               </tr>
@@ -292,8 +292,8 @@ export function DoctorsManager({
 
               <div className="space-y-2">
                 <Toggle
-                  label="Está trabajando"
-                  description="Si está de baja larga o no incorporado, desactívalo."
+                  label="Forma parte del reparto"
+                  description="Desactívalo solo si está fuera del reparto una temporada (excedencia, rotación en otro hospital, aún no incorporado). Una baja NO se desactiva aquí: se marca en el calendario y sigue recibiendo guardias (con sustituto)."
                   checked={form.is_active}
                   onChange={(v) => setForm({ ...form, is_active: v })}
                 />
