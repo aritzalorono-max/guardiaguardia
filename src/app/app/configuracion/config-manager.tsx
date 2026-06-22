@@ -53,23 +53,25 @@ export function ConfigManager({
         ))}
       </div>
 
+      {/* Las tres pestañas se mantienen montadas (solo se ocultan) para no
+          perder los cambios al cambiar de pestaña. */}
       <div className="mt-6">
-        {tab === "slots" && (
+        <div className={tab === "slots" ? "" : "hidden"}>
           <SlotsSection
             serviceId={serviceId}
             hasResidents={hasResidents}
             initialSlots={initialSlots}
           />
-        )}
-        {tab === "rules" && (
+        </div>
+        <div className={tab === "rules" ? "" : "hidden"}>
           <RulesSection serviceId={serviceId} initialRules={initialRules} />
-        )}
-        {tab === "daytypes" && (
+        </div>
+        <div className={tab === "daytypes" ? "" : "hidden"}>
           <DayTypesSection
             serviceId={serviceId}
             initialDayTypes={initialDayTypes}
           />
-        )}
+        </div>
       </div>
     </div>
   );
