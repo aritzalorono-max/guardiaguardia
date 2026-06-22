@@ -37,11 +37,13 @@ export function CalendarManager({
   doctors,
   dayTypes,
   initialHolidays,
+  initialSeededYears,
 }: {
   serviceId: string;
   doctors: DoctorLite[];
   dayTypes: DayTypeLite[];
   initialHolidays: HolidayLite[];
+  initialSeededYears: number[];
 }) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -50,6 +52,9 @@ export function CalendarManager({
   const [mode, setMode] = useState<"absences" | "holidays">("absences");
   const [brush, setBrush] = useState<string>(dayTypes[0]?.id ?? "erase");
   const [holidays, setHolidays] = useState<HolidayLite[]>(initialHolidays);
+  const [seededYears, setSeededYears] = useState<Set<number>>(
+    () => new Set(initialSeededYears),
+  );
   const [absences, setAbsences] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
 
@@ -159,25 +164,32 @@ export function CalendarManager({
     }
   }
 
-  async function loadNationalHolidays() {
-    setBusy(true);
-    try {
-      const rows = nationalHolidays(year).map((h) => ({
-        service_id: serviceId,
-        date: h.date,
-        name: h.name,
-      }));
-      await supabase
-        .from("holidays")
-        .upsert(rows, { onConflict: "service_id,date", ignoreDuplicates: true });
-      const { data } = await supabase
-        .from("holidays")
-        .select("id, date, name");
-      setHolidays(data ?? []);
-    } finally {
-      setBusy(false);
-    }
-  }
+  // Rellena automáticamente los festivos nacionales de un año la primera vez
+  // que se ve (después respeta los que el usuario haya quitado).
+  const seedYear = useCallbackRef(async (y: number) => {
+    if (seededYears.has(y)) return;
+    setSeededYears((prev) => new Set(prev).add(y));
+    const rows = nationalHolidays(y).map((h) => ({
+      service_id: serviceId,
+      date: h.date,
+      name: h.name,
+    }));
+    await supabase
+      .from("holidays")
+      .upsert(rows, { onConflict: "service_id,date", ignoreDuplicates: true });
+    await supabase
+      .from("seeded_holiday_years")
+      .upsert(
+        { service_id: serviceId, year: y },
+        { onConflict: "service_id,year", ignoreDuplicates: true },
+      );
+    const { data } = await supabase.from("holidays").select("id, date, name");
+    setHolidays(data ?? []);
+  });
+
+  useEffect(() => {
+    seedYear(year);
+  }, [year, seedYear]);
 
   // --- Navegación de mes ---
   function shiftMonth(delta: number) {
@@ -334,16 +346,11 @@ export function CalendarManager({
           </span>
         </div>
       ) : (
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button
-            onClick={loadNationalHolidays}
-            className="rounded-lg bg-teal-600 px-3 py-2 text-sm font-medium text-white hover:bg-teal-700"
-          >
-            Cargar festivos nacionales {year}
-          </button>
-          <span className="text-xs text-slate-500">
-            Haz clic en un día para marcarlo o desmarcarlo como festivo.
-          </span>
+        <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+          Los <strong>festivos nacionales</strong> ya aparecen marcados
+          automáticamente. Añade los <strong>autonómicos y locales</strong> de tu
+          zona haciendo clic en el día, o <strong>quita</strong> cualquier festivo
+          (incluido un nacional) volviendo a hacer clic sobre él.
         </div>
       )}
 

@@ -384,6 +384,27 @@ export type Database = {
         }
         Relationships: []
       }
+      seeded_holiday_years: {
+        Row: {
+          created_at: string
+          id: string
+          service_id: string
+          year: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          service_id: string
+          year: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          service_id?: string
+          year?: number
+        }
+        Relationships: []
+      }
       share_links: {
         Row: {
           created_at: string

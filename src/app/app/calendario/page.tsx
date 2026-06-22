@@ -12,7 +12,7 @@ export default async function CalendarioPage() {
   const service = services?.[0];
   if (!service) redirect("/onboarding");
 
-  const [{ data: doctors }, { data: dayTypes }, { data: holidays }] =
+  const [{ data: doctors }, { data: dayTypes }, { data: holidays }, { data: seeded }] =
     await Promise.all([
       supabase
         .from("doctors")
@@ -24,6 +24,7 @@ export default async function CalendarioPage() {
         .select("id, name, color, counts_as_worked, allows_guard")
         .order("created_at", { ascending: true }),
       supabase.from("holidays").select("id, date, name"),
+      supabase.from("seeded_holiday_years").select("year"),
     ]);
 
   return (
@@ -32,6 +33,7 @@ export default async function CalendarioPage() {
       doctors={doctors ?? []}
       dayTypes={dayTypes ?? []}
       initialHolidays={holidays ?? []}
+      initialSeededYears={(seeded ?? []).map((s) => s.year)}
     />
   );
 }

@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { resolveEngineRules } from "@/lib/rules";
+import { nationalHolidays } from "@/lib/holidays";
 import {
   generateSchedule,
   assignSubstitutes,
@@ -39,6 +40,33 @@ export async function generateCycle(formData: FormData) {
   const periodStart = `${startYear}-${pad(startMonth + 1)}-01`;
   const endDate = new Date(Date.UTC(startYear, startMonth + months, 0)); // último día
   const periodEnd = endDate.toISOString().slice(0, 10);
+
+  // Asegurar que los festivos nacionales de los años del periodo están cargados.
+  const years = new Set<number>();
+  for (let i = 0; i < months; i++)
+    years.add(new Date(Date.UTC(startYear, startMonth + i, 1)).getUTCFullYear());
+  const { data: seededRows } = await supabase
+    .from("seeded_holiday_years")
+    .select("year")
+    .in("year", [...years]);
+  const seededSet = new Set((seededRows ?? []).map((r) => r.year));
+  for (const y of years) {
+    if (seededSet.has(y)) continue;
+    const rows = nationalHolidays(y).map((h) => ({
+      service_id: service.id,
+      date: h.date,
+      name: h.name,
+    }));
+    await supabase
+      .from("holidays")
+      .upsert(rows, { onConflict: "service_id,date", ignoreDuplicates: true });
+    await supabase
+      .from("seeded_holiday_years")
+      .upsert(
+        { service_id: service.id, year: y },
+        { onConflict: "service_id,year", ignoreDuplicates: true },
+      );
+  }
 
   // Datos del servicio.
   const [
