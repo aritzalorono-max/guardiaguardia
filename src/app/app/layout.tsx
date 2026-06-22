@@ -18,6 +18,12 @@ export default async function AppLayout({
     redirect("/login");
   }
 
+  const { data: services } = await supabase
+    .from("services")
+    .select("hospital_name, specialty")
+    .limit(1);
+  const service = services?.[0];
+
   async function signOut() {
     "use server";
     const supabase = await createClient();
@@ -29,15 +35,27 @@ export default async function AppLayout({
     <div className="flex min-h-full flex-1 flex-col bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <Link
-            href="/app"
-            className="flex items-center gap-2 font-semibold text-slate-900"
-          >
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-teal-600 text-white">
-              G
-            </span>
-            GuardiaGuardia
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/app"
+              className="flex items-center gap-2 font-semibold text-slate-900"
+            >
+              <span className="grid h-8 w-8 place-items-center rounded-lg bg-teal-600 text-white">
+                G
+              </span>
+              GuardiaGuardia
+            </Link>
+            {service && (
+              <div className="flex flex-col border-l border-slate-200 pl-3 leading-tight">
+                <span className="text-sm font-semibold text-slate-900">
+                  {service.hospital_name}
+                </span>
+                <span className="text-xs text-slate-500">
+                  {service.specialty}
+                </span>
+              </div>
+            )}
+          </div>
           <div className="flex items-center gap-4 text-sm">
             <Link
               href="/app/cuenta"
