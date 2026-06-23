@@ -477,6 +477,12 @@ export function CalendarManager({
                     {absType.name}
                   </span>
                 )}
+                {festivo && absType && (
+                  <span
+                    title={festivoLabel ? `Festivo: ${festivoLabel}` : "Festivo / fin de semana"}
+                    className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-rose-500 ring-2 ring-white"
+                  />
+                )}
               </button>
             );
           })}
@@ -488,6 +494,10 @@ export function CalendarManager({
         <span className="flex items-center gap-1.5">
           <span className="h-3 w-3 rounded bg-rose-50 ring-1 ring-rose-200" />
           Festivo / fin de semana
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-rose-500 ring-2 ring-white" />
+          Festivo bajo una ausencia
         </span>
         {dayTypes.map((t) => (
           <span key={t.id} className="flex items-center gap-1.5">
