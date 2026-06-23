@@ -91,7 +91,7 @@ export async function generateCycle(formData: FormData) {
       .gte("end_date", periodStart),
     supabase
       .from("holidays")
-      .select("date")
+      .select("date, is_festivo")
       .gte("date", periodStart)
       .lte("date", periodEnd),
     supabase
@@ -141,7 +141,12 @@ export async function generateCycle(formData: FormData) {
     }
   }
 
-  const holidays = new Set((holidayRows ?? []).map((h) => h.date));
+  const holidays = new Set(
+    (holidayRows ?? []).filter((h) => h.is_festivo).map((h) => h.date),
+  );
+  const forcedLaborable = new Set(
+    (holidayRows ?? []).filter((h) => !h.is_festivo).map((h) => h.date),
+  );
 
   // Histórico de ciclos anteriores.
   const history = new Map<string, Partial<Record<DayCategory, number>>>();
@@ -157,6 +162,7 @@ export async function generateCycle(formData: FormData) {
     startMonth,
     months,
     holidays,
+    forcedLaborable,
     doctors,
     slots,
     blockedGuardDates,

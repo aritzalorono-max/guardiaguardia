@@ -21,7 +21,12 @@ type DayTypeLite = {
   counts_as_worked: boolean;
   allows_guard: boolean;
 };
-type HolidayLite = { id: string; date: string; name: string | null };
+type HolidayLite = {
+  id: string;
+  date: string;
+  name: string | null;
+  is_festivo: boolean;
+};
 
 const MONTHS = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -63,10 +68,18 @@ export function CalendarManager({
     () => new Map(dayTypes.map((t) => [t.id, t])),
     [dayTypes],
   );
-  const holidayByDate = useMemo(
-    () => new Map(holidays.map((h) => [h.date, h.name])),
+  // Override por fecha (si existe fila): define si es festivo y su nombre.
+  const overrideByDate = useMemo(
+    () => new Map(holidays.map((h) => [h.date, h])),
     [holidays],
   );
+
+  // ¿Es festivo ese día? Override si existe; si no, fin de semana.
+  const isFestivoDate = (date: string, weekday: number) => {
+    const o = overrideByDate.get(date);
+    if (o) return o.is_festivo;
+    return weekday >= 5;
+  };
 
   // --- Cargar ausencias del médico/mes seleccionados ---
   const reloadAbsences = useCallbackRef(async () => {
@@ -149,19 +162,45 @@ export function CalendarManager({
   }, [doctorId, serviceId]);
 
   // --- Festivos ---
+  // Un clic alterna el estado festivo del día. El "por defecto" es: fin de
+  // semana = festivo, resto = laborable. Si el nuevo estado coincide con el
+  // por defecto, se borra el override; si no, se guarda.
   async function toggleHoliday(date: string) {
+    const weekday = (new Date(date + "T00:00:00Z").getUTCDay() + 6) % 7;
+    const def = weekday >= 5; // por defecto festivo si es finde
+    const current = isFestivoDate(date, weekday);
+    const next = !current;
     const existing = holidays.find((h) => h.date === date);
-    if (existing) {
-      setHolidays((h) => h.filter((x) => x.id !== existing.id));
-      await supabase.from("holidays").delete().eq("id", existing.id);
-    } else {
-      const { data } = await supabase
-        .from("holidays")
-        .insert({ service_id: serviceId, date, name: "Festivo" })
-        .select("id, date, name")
-        .single();
-      if (data) setHolidays((h) => [...h, data]);
+
+    if (next === def) {
+      // Vuelve al estado por defecto: quitar el override si lo hay.
+      if (existing) {
+        setHolidays((h) => h.filter((x) => x.id !== existing.id));
+        const { error } = await supabase.from("holidays").delete().eq("id", existing.id);
+        if (error) toast.error("No se pudo guardar. Reintenta.");
+      }
+      return;
     }
+
+    // Guardar override (festivo o forzado laborable).
+    const { data, error } = await supabase
+      .from("holidays")
+      .upsert(
+        {
+          service_id: serviceId,
+          date,
+          is_festivo: next,
+          name: next ? "Festivo" : null,
+        },
+        { onConflict: "service_id,date" },
+      )
+      .select("id, date, name, is_festivo")
+      .single();
+    if (error || !data) {
+      toast.error("No se pudo guardar. Reintenta.");
+      return;
+    }
+    setHolidays((h) => [...h.filter((x) => x.date !== date), data]);
   }
 
   // Rellena automáticamente los festivos nacionales de un año la primera vez
@@ -183,7 +222,9 @@ export function CalendarManager({
         { service_id: serviceId, year: y },
         { onConflict: "service_id,year", ignoreDuplicates: true },
       );
-    const { data } = await supabase.from("holidays").select("id, date, name");
+    const { data } = await supabase
+      .from("holidays")
+      .select("id, date, name, is_festivo");
     setHolidays(data ?? []);
   });
 
@@ -347,10 +388,11 @@ export function CalendarManager({
         </div>
       ) : (
         <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-          Los <strong>festivos nacionales</strong> ya aparecen marcados
-          automáticamente. Añade los <strong>autonómicos y locales</strong> de tu
-          zona haciendo clic en el día, o <strong>quita</strong> cualquier festivo
-          (incluido un nacional) volviendo a hacer clic sobre él.
+          Los <strong>fines de semana</strong> y los <strong>festivos
+          nacionales</strong> ya están marcados como festivos. Haz clic en un día
+          para <strong>alternarlo</strong>: marca un laborable como festivo
+          (autonómico/local) o quita un festivo, incluido un sábado o domingo si
+          ese día se trabaja con normalidad.
         </div>
       )}
 
@@ -371,9 +413,9 @@ export function CalendarManager({
             if (day === null) return <div key={idx} />;
             const date = ymd(year, month, day);
             const weekday = (new Date(year, month, day).getDay() + 6) % 7;
-            const isWeekend = weekday >= 5;
-            const holidayName = holidayByDate.get(date);
-            const isHoliday = holidayByDate.has(date);
+            const festivo = isFestivoDate(date, weekday);
+            const override = overrideByDate.get(date);
+            const festivoLabel = override?.is_festivo ? override.name : null;
             const absTypeId = absences[date];
             const absType = absTypeId ? typeById.get(absTypeId) : undefined;
             const isToday =
@@ -384,16 +426,13 @@ export function CalendarManager({
             const base =
               "relative flex h-16 flex-col items-start justify-start rounded-lg p-1.5 text-left transition";
             let bg = "bg-white hover:bg-slate-50";
-            if (!absType) {
-              if (isHoliday) bg = "bg-rose-50 hover:bg-rose-100";
-              else if (isWeekend) bg = "bg-slate-50 hover:bg-slate-100";
-            }
+            if (!absType && festivo) bg = "bg-rose-50 hover:bg-rose-100";
 
             return (
               <button
                 key={idx}
                 type="button"
-                title={holidayName ?? absType?.name ?? ""}
+                title={festivoLabel ?? absType?.name ?? ""}
                 onClick={
                   mode === "holidays" ? () => toggleHoliday(date) : undefined
                 }
@@ -421,18 +460,16 @@ export function CalendarManager({
                   className={`text-xs font-semibold ${
                     absType
                       ? "text-white"
-                      : isHoliday
+                      : festivo
                         ? "text-rose-600"
-                        : isWeekend
-                          ? "text-rose-400"
-                          : "text-slate-700"
+                        : "text-slate-700"
                   }`}
                 >
                   {day}
                 </span>
-                {holidayName && !absType && (
+                {festivoLabel && !absType && (
                   <span className="mt-0.5 line-clamp-2 text-[10px] leading-tight text-rose-500">
-                    {holidayName}
+                    {festivoLabel}
                   </span>
                 )}
                 {absType && (

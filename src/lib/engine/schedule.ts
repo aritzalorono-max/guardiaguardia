@@ -70,6 +70,8 @@ export interface EngineInput {
   months: number;
   /** Festivos 'YYYY-MM-DD' (los fines de semana se detectan solos). */
   holidays: Set<string>;
+  /** Fechas forzadas a laborable aunque sean fin de semana (excepciones). */
+  forcedLaborable?: Set<string>;
   doctors: EngineDoctor[];
   slots: EngineSlot[];
   /** doctorId -> fechas 'YYYY-MM-DD' en las que NO puede hacer guardia. */
@@ -127,9 +129,12 @@ function buildDays(input: EngineInput): DayInfo[] {
   const start = new Date(Date.UTC(startYear, startMonth, 1));
   const end = new Date(Date.UTC(startYear, startMonth + months, 1));
 
+  const forcedLaborable = input.forcedLaborable ?? new Set<string>();
   const isFestivo = (d: Date) => {
+    const date = fmt(d);
+    if (forcedLaborable.has(date)) return false;
     const wd = d.getUTCDay();
-    return wd === 0 || wd === 6 || holidays.has(fmt(d));
+    return wd === 0 || wd === 6 || holidays.has(date);
   };
 
   const days: DayInfo[] = [];

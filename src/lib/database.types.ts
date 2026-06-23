@@ -312,6 +312,7 @@ export type Database = {
           date: string
           id: string
           is_eve: boolean
+          is_festivo: boolean
           name: string | null
           service_id: string
         }
@@ -320,6 +321,7 @@ export type Database = {
           date: string
           id?: string
           is_eve?: boolean
+          is_festivo?: boolean
           name?: string | null
           service_id: string
         }
@@ -328,6 +330,7 @@ export type Database = {
           date?: string
           id?: string
           is_eve?: boolean
+          is_festivo?: boolean
           name?: string | null
           service_id?: string
         }

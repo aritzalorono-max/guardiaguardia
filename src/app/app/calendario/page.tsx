@@ -23,7 +23,7 @@ export default async function CalendarioPage() {
         .from("day_types")
         .select("id, name, color, counts_as_worked, allows_guard")
         .order("created_at", { ascending: true }),
-      supabase.from("holidays").select("id, date, name"),
+      supabase.from("holidays").select("id, date, name, is_festivo"),
       supabase.from("seeded_holiday_years").select("year"),
     ]);
 
